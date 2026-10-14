@@ -252,10 +252,15 @@ el.speed.addEventListener('input', () => {
 el.timeline.addEventListener('scroll', draw);
 window.addEventListener('resize', layout);
 
-// Close other menus when one opens
+// Close other menus when one opens, and keep the open one on screen
 for (const menu of document.querySelectorAll('details.menu')) {
   menu.addEventListener('toggle', () => {
-    if (menu.open) for (const other of document.querySelectorAll('details.menu')) if (other !== menu) other.open = false;
+    if (!menu.open) return;
+    for (const other of document.querySelectorAll('details.menu')) if (other !== menu) other.open = false;
+    const panel = menu.querySelector('.menu-panel');
+    panel.style.transform = '';
+    const overflow = panel.getBoundingClientRect().right - (document.documentElement.clientWidth - 12);
+    if (overflow > 0) panel.style.transform = `translateX(-${Math.ceil(overflow)}px)`;
   });
 }
 document.addEventListener('click', e => {
