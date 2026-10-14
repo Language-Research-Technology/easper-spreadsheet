@@ -1,6 +1,6 @@
 import { decodeTo16kMono, computePeaks, SAMPLE_RATE } from './audio.js';
 import { drawWaveform, formatClock, speakerColor } from './waveform.js';
-import { readSheets, chooseSheet, detectMapping, describeColumns, toUtterances, ACCEPT } from './spreadsheet.js';
+import { readSheets, chooseSheet, detectMapping, describeColumns, toUtterances, mergeSpeakerRuns, rowLabel, ACCEPT } from './spreadsheet.js';
 import { alignUtterances } from './align.js';
 import { toCsv, toEaf, download, formatTime } from './export.js';
 import { formatClock as formatRangeClock, overlapsRange, mergeSegments } from './range.js';
@@ -177,7 +177,7 @@ function renderLanes() {
     meta.innerHTML = `${diar}${u.speaker ? `<span class="chip sheet-speaker" title="Speaker from the spreadsheet"></span>` : ''}<button class="play-mini" title="Play">▶</button>
       <span>${formatTime(u.start)} – ${formatTime(u.end)}</span>
       <span class="conf ${u.status}" title="${u.matchedWords}/${u.totalWords} words matched Whisper">${u.status === 'interpolated' ? 'estimated' : Math.round(u.confidence * 100) + '%'}</span>
-      <span>row ${u.row}</span>`;
+      <span>row${u.rowEnd && u.rowEnd !== u.row ? 's' : ''} ${rowLabel(u)}</span>`;
     if (u.speaker) meta.querySelector('.sheet-speaker').textContent = u.speaker;
     node.append(meta, document.createTextNode(u.text));
     node.addEventListener('click', () => selectUtterance(u.index, true));
@@ -389,7 +389,7 @@ el.sheetInput.accept = ACCEPT;
 // Spreadsheet → utterances: the sheet and columns are guessed, and can be changed in the menu
 const map = {
   panel: $('sheet-mapping'), sheet: $('map-sheet'), sheetRow: $('map-sheet-row'), header: $('map-header'),
-  text: $('map-text'), speaker: $('map-speaker'), preview: $('map-preview'),
+  text: $('map-text'), speaker: $('map-speaker'), merge: $('map-merge'), preview: $('map-preview'),
 };
 let source = null; // { fileName, sheets: [{name, rows}], sheet, mapping }
 
@@ -419,17 +419,22 @@ function showMapping() {
 
 function applyMapping() {
   const { fileName, sheets, sheet, mapping } = source;
-  state.utterances = toUtterances(sheets[sheet].rows, mapping);
+  const hasSpeaker = mapping.speakerCol >= 0;
+  map.merge.disabled = !hasSpeaker;
+  map.merge.parentElement.classList.toggle('disabled', !hasSpeaker);
+  const rows = toUtterances(sheets[sheet].rows, mapping);
+  state.utterances = hasSpeaker && map.merge.checked ? mergeSpeakerRuns(rows) : rows;
   state.aligned = [];
   const n = state.utterances.length;
   const speakers = new Set(state.utterances.map(u => u.speaker).filter(Boolean));
   const where = sheets.length > 1 ? ` (sheet "${sheets[sheet].name}")` : '';
-  el.sheetInfo.textContent = `${fileName}${where}: ${n} utterances${speakers.size ? `, ${speakers.size} speaker(s)` : ''}.`;
+  const merged = n < rows.length ? ` (merged from ${rows.length} rows)` : '';
+  el.sheetInfo.textContent = `${fileName}${where}: ${n} utterances${merged}${speakers.size ? `, ${speakers.size} speaker(s)` : ''}.`;
   map.preview.replaceChildren(...(n ? state.utterances.slice(0, 6) : [null]).map(u => {
     const line = document.createElement('div');
     if (!u) { line.className = 'empty'; line.textContent = 'No text in this column.'; return line; }
     line.innerHTML = '<span class="row-no"></span><span class="who"></span><span class="txt"></span>';
-    line.querySelector('.row-no').textContent = `#${u.row}`;
+    line.querySelector('.row-no').textContent = `#${rowLabel(u)}`;
     line.querySelector('.who').textContent = u.speaker ? `${u.speaker}:` : '';
     line.querySelector('.txt').textContent = u.text;
     return line;
@@ -468,6 +473,7 @@ map.header.addEventListener('change', () => {
 });
 map.text.addEventListener('change', () => { source.mapping.textCol = Number(map.text.value); applyMapping(); });
 map.speaker.addEventListener('change', () => { source.mapping.speakerCol = Number(map.speaker.value); applyMapping(); });
+map.merge.addEventListener('change', applyMapping);
 
 el.align.addEventListener('click', () => {
   const words = state.segments.flatMap(s => state.asr[s.id]?.words ?? []);
