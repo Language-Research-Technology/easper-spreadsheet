@@ -3,7 +3,8 @@ import { drawWaveform, formatClock, speakerColor } from './waveform.js';
 import { readSpreadsheetFile, ACCEPT } from './spreadsheet.js';
 import { alignUtterances } from './align.js';
 import { toCsv, toEaf, download, formatTime } from './export.js';
-import { parseClock, formatClock as formatRangeClock, normalizeRange, overlapsRange, mergeSegments } from './range.js';
+import { formatClock as formatRangeClock, overlapsRange, mergeSegments } from './range.js';
+import { createRangeSlider } from './range-slider.js';
 
 const LANGUAGES = [
   ['auto', 'Auto-detect'], ['en', 'English'], ['id', 'Indonesian'], ['ms', 'Malay'], ['tl', 'Tagalog'],
@@ -162,6 +163,7 @@ function tick() {
     el.player.pause();
     state.stopAt = null;
   }
+  rangeSlider.setPlayhead(el.player.currentTime);
   if (!el.player.paused) {
     // Keep the playhead in view
     const y = yOf(el.player.currentTime), top = el.timeline.scrollTop, h = el.timeline.clientHeight;
@@ -226,6 +228,7 @@ el.audioInput.addEventListener('change', async () => {
       file, samples, peaks: computePeaks(samples), duration: samples.length / SAMPLE_RATE,
       segments: [], speakerCount: 1, asr: {}, aligned: [], selected: null, range: null,
     });
+    rangeSlider.setDuration(state.duration);
     showRange();
     if (el.player.src) URL.revokeObjectURL(el.player.src);
     el.player.src = URL.createObjectURL(file);
@@ -245,46 +248,19 @@ el.audioInput.addEventListener('change', async () => {
 
 // ── Working range ──────────────────────────────────────────────────────────
 
-const rangeStart = $('range-start'), rangeEnd = $('range-end');
+const rangeSlider = createRangeSlider($('range-slider'), range => {
+  state.range = range;
+  showRange(false);
+});
 
-function showRange() {
+function showRange(updateSlider = true) {
   const r = state.range;
-  rangeStart.value = r ? formatRangeClock(r.start) : '';
-  rangeEnd.value = r ? formatRangeClock(r.end) : '';
-  rangeStart.placeholder = '00:00.0';
-  rangeEnd.placeholder = state.duration ? formatRangeClock(state.duration) : 'end';
-  $('range-summary').textContent = r ? `${formatRangeClock(r.start)} – ${formatRangeClock(r.end)} (${(r.end - r.start).toFixed(1)} s)` : 'whole recording';
-  $('range-reset').hidden = !r;
+  if (updateSlider) rangeSlider.setRange(r);
   $('asr-range-note').textContent = r ? ` in the range ${formatRangeClock(r.start)}–${formatRangeClock(r.end)}` : '';
   el.segRun.textContent = r ? 'Run segmentation on range' : 'Run segmentation';
   el.asrRun.textContent = r ? 'Transcribe segments in range' : 'Transcribe segments';
   draw();
 }
-
-function applyRangeInputs() {
-  if (!state.duration) return;
-  const start = rangeStart.value.trim() ? parseClock(rangeStart.value) : 0;
-  const end = rangeEnd.value.trim() ? parseClock(rangeEnd.value) : state.duration;
-  if (start === null || end === null) {
-    setStatus('Range times must look like 1:23.5, 0:01:23 or 83.5.', 'error');
-    return;
-  }
-  const r = normalizeRange(start, end, state.duration);
-  if (r?.invalid) {
-    setStatus('The range end must be at least half a second after its start.', 'error');
-    return;
-  }
-  state.range = r;
-  showRange();
-}
-
-for (const input of [rangeStart, rangeEnd]) {
-  input.addEventListener('change', applyRangeInputs);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyRangeInputs(); } });
-}
-$('range-start-now').addEventListener('click', () => { rangeStart.value = formatRangeClock(el.player.currentTime); applyRangeInputs(); });
-$('range-end-now').addEventListener('click', () => { rangeEnd.value = formatRangeClock(el.player.currentTime); applyRangeInputs(); });
-$('range-reset').addEventListener('click', () => { state.range = null; showRange(); });
 
 el.segRun.addEventListener('click', () => {
   $('seg-menu').open = false;

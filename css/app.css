@@ -75,11 +75,29 @@ body { margin: 0; background: var(--bg); height: 100vh; display: flex; flex-dire
 .menu-panel input[type=number] { width: 70px; }
 .menu-panel select { max-width: 170px; }
 .hint { margin: 0; font-size: 12px; color: var(--muted); }
-.range { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; }
-.range legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
-.range-input { display: inline-flex; gap: 4px; }
-.range-input input { width: 84px; font: 12px ui-monospace, Menlo, monospace; }
-.btn.icon { padding: 2px 6px; }
+.range-slider { padding: 0 0 6px; border-bottom: 1px dashed var(--border); }
+.rs-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.rs-title { font-weight: 700; font-size: 13px; color: #475569; }
+.rs-reset { border: 0; background: none; padding: 0; color: var(--primary); font: 600 12px system-ui, sans-serif; text-decoration: underline; cursor: pointer; }
+.rs-track-wrap { position: relative; height: 28px; margin: 0 9px; touch-action: none; cursor: pointer; }
+.rs-track { position: absolute; left: 0; right: 0; top: 11px; height: 6px; border-radius: 3px; background: #e2e8f0; }
+.rs-fill { position: absolute; top: 0; bottom: 0; background: var(--primary); border-radius: 3px; }
+.rs-playhead { position: absolute; top: 4px; width: 2px; height: 20px; margin-left: -1px; background: #ef4444; pointer-events: none; }
+.rs-thumb {
+  position: absolute; top: 5px; width: 18px; height: 18px; margin-left: -9px; padding: 0;
+  border-radius: 50%; border: 2px solid #fff; background: var(--primary);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, .35); cursor: grab;
+}
+.rs-thumb:disabled { background: #cbd5e1; cursor: default; }
+.rs-thumb.active { cursor: grabbing; }
+.rs-thumb:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
+.rs-thumb:is(:hover, :focus-visible, .active)::after {
+  content: attr(data-time); position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+  padding: 1px 5px; border-radius: 4px; background: #0f172a; color: #fff;
+  font: 600 10px ui-monospace, Menlo, monospace; white-space: nowrap; pointer-events: none;
+}
+.rs-labels { display: flex; justify-content: space-between; font: 12px ui-monospace, Menlo, monospace; color: var(--muted); }
+.rs-selected { font: 700 12px system-ui, sans-serif; color: var(--primary); cursor: default; }
 #export-menu { margin-left: auto; }
 
 .status { margin: 8px 16px 0; font-size: 13px; color: var(--muted); min-height: 18px; }

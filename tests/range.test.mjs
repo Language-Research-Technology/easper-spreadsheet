@@ -1,27 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseClock, formatClock, normalizeRange, mergeSegments } from '../js/range.js';
+import { formatClock, mergeSegments } from '../js/range.js';
 
-test('parseClock accepts seconds, mm:ss and h:mm:ss', () => {
-  assert.equal(parseClock('12.5'), 12.5);
-  assert.equal(parseClock('01:02.5'), 62.5);
-  assert.equal(parseClock('1:00:02'), 3602);
-  assert.equal(parseClock('1:02,5'), 62.5);
-  assert.equal(parseClock(''), null);
-  assert.equal(parseClock('abc'), null);
-  assert.equal(parseClock('1:2:3:4'), null);
-});
-
-test('formatClock round-trips through parseClock', () => {
-  for (const t of [0, 9.5, 62.3, 3725.1]) assert.equal(parseClock(formatClock(t)), t);
+test('formatClock shows tenths, with hours only when needed', () => {
+  assert.equal(formatClock(0), '00:00.0');
   assert.equal(formatClock(62.34), '01:02.3');
-});
-
-test('normalizeRange clamps, rejects inverted ranges, and treats the whole recording as no range', () => {
-  assert.deepEqual(normalizeRange(5, 20, 31), { start: 5, end: 20 });
-  assert.equal(normalizeRange(20, 5, 31).invalid, true);
-  assert.deepEqual(normalizeRange(-3, 99, 31), null);
-  assert.equal(normalizeRange(5, 5.2, 31).invalid, true);
+  assert.equal(formatClock(3725.1), '1:02:05.1');
 });
 
 test('mergeSegments replaces only the segments inside the range', () => {

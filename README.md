@@ -9,7 +9,7 @@ merging it into Easper later.
    Set **Number of speakers** to 2–5 for speaker diarization, as in Easper. Sliding windows (2 s by default; Easper uses 1 s) get CAM++
    speaker embeddings, which are clustered (average linkage) and merged into speaker turns.
    Aligned rows then show the diarized speaker they overlap most (`diarized_speaker` in the CSV).
-   Set a **Range** (from/to) to segment and transcribe only part of the recording, as in Easper. It's handy for testing and demos.
+   Drag the **Portion to segment** slider to segment and transcribe only part of the recording, as in Easper. It's handy for testing and demos.
    Re-running on a range replaces only the segments inside it.
 3. **Speech Recognition**: Whisper via transformers.js 3.8.1 (`onnx-community/whisper-*_timestamped`, q8),
    run on each segment with word-level timestamps.
@@ -49,7 +49,8 @@ node --test tests/*.test.mjs
 | --- | --- |
 | `js/align.js` | Alignment of manual utterances to Whisper words (pure, unit-tested) |
 | `js/segments.js` | Silero VAD loop and `segmentsCleanup`, ported from Easper web |
-| `js/range.js` | Working range: time parsing and merging range results into existing segments |
+| `js/range.js` | Working range: merging range results into existing segments |
+| `js/range-slider.js` | Two-handle "Portion to segment" slider |
 | `js/diarize.js` | Fbank features, CAM++ embeddings, clustering and turn merging, ported from Easper web |
 | `js/worker.js` | Web Worker that runs VAD and Whisper |
 | `js/waveform.js` | Vertical waveform canvas, styled after Easper's transcriber |
