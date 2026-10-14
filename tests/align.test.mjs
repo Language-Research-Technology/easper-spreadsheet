@@ -67,6 +67,20 @@ test('interpolation only spends time where there is speech', () => {
   assert.deepEqual([b.start, b.end], [10, 12]);
 });
 
+test('unmatched words with no speech of their own share time with the next matched word', () => {
+  // Whisper misheard "by noon the boat" in a short segment as "the following report"
+  const asr = [
+    ...timedWords('circled overhead', 15.5, 0.8),
+    { text: 'The', start: 19.3, end: 19.5 }, { text: 'following', start: 19.5, end: 19.9 },
+    { text: 'report', start: 19.9, end: 20.2 }, { text: 'was', start: 20.2, end: 20.4 }, { text: 'ready', start: 20.4, end: 20.67 },
+  ];
+  const segs = [{ start: 14.27, end: 17.15 }, { start: 19.3, end: 20.67 }];
+  const [a, b] = alignUtterances([{ text: 'circled overhead.' }, { text: 'By noon the boat was ready.' }], asr, segs, 25);
+  assert.equal(a.end, 17.15);
+  assert.equal(b.start, 19.3);
+  assert.equal(b.end, 20.67);
+});
+
 test('utterances never overlap and stay in order', () => {
   const asr = timedWords('a b c d e f g h', 0, 0.3);
   const utterances = [{ text: 'a b c' }, { text: 'c d e' }, { text: 'f g h' }];
