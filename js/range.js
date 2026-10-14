@@ -17,13 +17,13 @@ export function formatClock(sec) {
 }
 
 /**
- * Normalise a range against the recording: clamp, order, and return null when
- * it covers (practically) the whole recording.
+ * Normalise a range against the recording: clamp, and return null when it
+ * covers (practically) the whole recording. Returns {invalid} when the end is
+ * not at least half a second after the start.
  */
 export function normalizeRange(start, end, duration) {
-  let a = Math.max(0, Math.min(duration, start ?? 0));
-  let b = Math.max(0, Math.min(duration, end ?? duration));
-  if (b < a) [a, b] = [b, a];
+  const a = Math.max(0, Math.min(duration, start ?? 0));
+  const b = Math.max(0, Math.min(duration, end ?? duration));
   if (b - a < 0.5) return { invalid: true, start: a, end: b };
   if (a <= 0.05 && b >= duration - 0.05) return null;
   return { start: a, end: b };

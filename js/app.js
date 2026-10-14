@@ -271,7 +271,7 @@ function applyRangeInputs() {
   }
   const r = normalizeRange(start, end, state.duration);
   if (r?.invalid) {
-    setStatus('The range must be at least half a second long.', 'error');
+    setStatus('The range end must be at least half a second after its start.', 'error');
     return;
   }
   state.range = r;

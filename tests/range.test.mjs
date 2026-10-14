@@ -17,9 +17,9 @@ test('formatClock round-trips through parseClock', () => {
   assert.equal(formatClock(62.34), '01:02.3');
 });
 
-test('normalizeRange clamps, orders, and treats the whole recording as no range', () => {
+test('normalizeRange clamps, rejects inverted ranges, and treats the whole recording as no range', () => {
   assert.deepEqual(normalizeRange(5, 20, 31), { start: 5, end: 20 });
-  assert.deepEqual(normalizeRange(20, 5, 31), { start: 5, end: 20 });
+  assert.equal(normalizeRange(20, 5, 31).invalid, true);
   assert.deepEqual(normalizeRange(-3, 99, 31), null);
   assert.equal(normalizeRange(5, 5.2, 31).invalid, true);
 });
