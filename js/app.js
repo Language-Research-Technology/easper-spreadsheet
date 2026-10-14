@@ -247,6 +247,7 @@ el.segRun.addEventListener('click', () => {
   worker.postMessage({
     type: 'vad',
     speakers: Number($('vad-speakers').value),
+    diarization: { windowSec: Number($('diar-window').value), periodSec: Number($('diar-period').value) },
     options: {
       threshold: Number($('vad-threshold').value),
       minSilence: Number($('vad-min-silence').value),

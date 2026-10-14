@@ -67,7 +67,7 @@ async function loadAsr(modelId) {
   return asr;
 }
 
-async function runVad({ options, speakers = 1 }) {
+async function runVad({ options, speakers = 1, diarization = {} }) {
   const session = await loadVad();
   const diarize = speakers >= 2;
   status('Scanning audio for speech…');
@@ -79,7 +79,7 @@ async function runVad({ options, speakers = 1 }) {
   }
 
   try {
-    post('vad_result', await diarizeRegions(raw, speakers, options));
+    post('vad_result', await diarizeRegions(raw, speakers, options, diarization));
   } catch (err) {
     // As in Easper: if diarization fails, keep the speech segments with one speaker
     console.warn('Diarization failed:', err);
@@ -89,10 +89,10 @@ async function runVad({ options, speakers = 1 }) {
 }
 
 // Speaker diarization, as in Easper: embed sliding windows, cluster, merge into turns
-async function diarizeRegions(raw, speakers, options) {
+async function diarizeRegions(raw, speakers, options, { windowSec = DIARIZATION_DEFAULTS.windowSec, periodSec = DIARIZATION_DEFAULTS.periodSec } = {}) {
   const model = await loadSpeakerModel();
   const windows = raw.flatMap((seg, utteranceIdx) =>
-    slidingWindows(seg.start, Math.max(seg.start + 0.1, seg.end), DIARIZATION_DEFAULTS.windowSec, DIARIZATION_DEFAULTS.periodSec)
+    slidingWindows(seg.start, Math.max(seg.start + 0.1, seg.end), windowSec, periodSec)
       .map(w => ({ ...w, utteranceIdx })));
   const embeddings = [], kept = [];
   for (let i = 0; i < windows.length; i++) {
