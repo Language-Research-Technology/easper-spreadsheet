@@ -7,7 +7,8 @@ export const EMBEDDING_MODEL_URL =
   'https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/main/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx';
 
 export const DIARIZATION_DEFAULTS = Object.freeze({
-  windowSec: 1,
+  // Easper uses 1 s; 2 s gives CAM++ enough speech to tell voices apart more reliably
+  windowSec: 2,
   periodSec: 0.5,
   // Finer VAD settings Easper uses when diarizing, so turns aren't merged across speakers
   vad: { minSilenceDurationMs: 100, speechPadMs: 30, minSpeechDurationMs: 250, maxSegmentDuration: Infinity },

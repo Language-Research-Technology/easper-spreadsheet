@@ -6,7 +6,7 @@ merging it into Easper later.
 
 1. **Open audio**: decoded in the browser to 16 kHz mono.
 2. **Auto Segmentation**: Silero VAD v5 plus Easper's segment clean-up (ported from easper.au).
-   Set **Number of speakers** to 2–5 for speaker diarization, as in Easper. Sliding 1 s windows get CAM++
+   Set **Number of speakers** to 2–5 for speaker diarization, as in Easper. Sliding windows (2 s by default; Easper uses 1 s) get CAM++
    speaker embeddings, which are clustered (average linkage) and merged into speaker turns.
    Aligned rows then show the diarized speaker they overlap most (`diarized_speaker` in the CSV).
 3. **Speech Recognition**: Whisper via transformers.js 3.8.1 (`onnx-community/whisper-*_timestamped`, q8),
