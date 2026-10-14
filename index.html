@@ -46,6 +46,19 @@
       <details class="menu" id="seg-menu">
         <summary class="btn">✂ Auto Segmentation</summary>
         <div class="menu-panel">
+          <fieldset class="range">
+            <legend>Range <span class="hint" id="range-summary">whole recording</span></legend>
+            <label>From
+              <span class="range-input"><input type="text" id="range-start" placeholder="00:00.0" inputmode="decimal">
+              <button type="button" class="btn icon" id="range-start-now" title="Use playhead position">◷</button></span>
+            </label>
+            <label>To
+              <span class="range-input"><input type="text" id="range-end" placeholder="end" inputmode="decimal">
+              <button type="button" class="btn icon" id="range-end-now" title="Use playhead position">◷</button></span>
+            </label>
+            <button type="button" class="btn" id="range-reset" hidden>Whole recording</button>
+            <p class="hint">Segmentation and speech recognition only process this range. Segments outside it are kept. With diarization, speaker numbers are assigned separately for each run.</p>
+          </fieldset>
           <p class="hint">Silero VAD with Easper's segment clean-up. With 2 or more speakers,
             segments are split into speaker turns using CAM++ speaker embeddings (30 MB download).</p>
           <label>Number of speakers
@@ -67,7 +80,7 @@
       <details class="menu" id="asr-menu">
         <summary class="btn">🧠 Speech Recognition <span class="badge" id="asr-count" hidden></span></summary>
         <div class="menu-panel">
-          <p class="hint">Whisper (transformers.js, runs in your browser) on each segment.</p>
+          <p class="hint">Whisper (transformers.js, runs in your browser) on each segment<span id="asr-range-note"></span>.</p>
           <label>Model
             <select id="asr-model">
               <option value="onnx-community/whisper-tiny_timestamped">Whisper tiny (~70 MB, fastest)</option>

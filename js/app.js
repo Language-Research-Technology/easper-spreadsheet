@@ -3,6 +3,7 @@ import { drawWaveform, formatClock, speakerColor } from './waveform.js';
 import { readSpreadsheetFile, ACCEPT } from './spreadsheet.js';
 import { alignUtterances } from './align.js';
 import { toCsv, toEaf, download, formatTime } from './export.js';
+import { parseClock, formatClock as formatRangeClock, normalizeRange, overlapsRange, mergeSegments } from './range.js';
 
 const LANGUAGES = [
   ['auto', 'Auto-detect'], ['en', 'English'], ['id', 'Indonesian'], ['ms', 'Malay'], ['tl', 'Tagalog'],
@@ -32,6 +33,7 @@ const state = {
   asr: {},           // segment id -> {text, words}
   utterances: [],    // manual transcript rows [{row, text, speaker}]
   aligned: [],       // alignment result
+  range: null,       // {start, end} to process only part of the recording; null = whole
   pps: 24, selected: null, hoverTime: null, stopAt: null, busy: false,
 };
 
@@ -83,7 +85,7 @@ function draw() {
   drawWaveform(el.canvas, {
     peaks: state.peaks, duration: state.duration, pps: state.pps, scrollTop: el.timeline.scrollTop,
     segments: state.segments, asrSegments: state.asr, aligned: state.aligned, selected: state.selected, speakerCount: state.speakerCount,
-    currentTime: el.player.currentTime, hoverTime: state.hoverTime,
+    currentTime: el.player.currentTime, hoverTime: state.hoverTime, range: state.range,
   });
 }
 
@@ -222,8 +224,9 @@ el.audioInput.addEventListener('change', async () => {
     const samples = await decodeTo16kMono(file);
     Object.assign(state, {
       file, samples, peaks: computePeaks(samples), duration: samples.length / SAMPLE_RATE,
-      segments: [], speakerCount: 1, asr: {}, aligned: [], selected: null,
+      segments: [], speakerCount: 1, asr: {}, aligned: [], selected: null, range: null,
     });
+    showRange();
     if (el.player.src) URL.revokeObjectURL(el.player.src);
     el.player.src = URL.createObjectURL(file);
     el.fileName.textContent = `${file.name} · ${formatClock(state.duration)}`;
@@ -240,12 +243,56 @@ el.audioInput.addEventListener('change', async () => {
 
 // ── Segmentation & ASR (worker) ────────────────────────────────────────────
 
+// ── Working range ──────────────────────────────────────────────────────────
+
+const rangeStart = $('range-start'), rangeEnd = $('range-end');
+
+function showRange() {
+  const r = state.range;
+  rangeStart.value = r ? formatRangeClock(r.start) : '';
+  rangeEnd.value = r ? formatRangeClock(r.end) : '';
+  rangeStart.placeholder = '00:00.0';
+  rangeEnd.placeholder = state.duration ? formatRangeClock(state.duration) : 'end';
+  $('range-summary').textContent = r ? `${formatRangeClock(r.start)} – ${formatRangeClock(r.end)} (${(r.end - r.start).toFixed(1)} s)` : 'whole recording';
+  $('range-reset').hidden = !r;
+  $('asr-range-note').textContent = r ? ` in the range ${formatRangeClock(r.start)}–${formatRangeClock(r.end)}` : '';
+  el.segRun.textContent = r ? 'Run segmentation on range' : 'Run segmentation';
+  el.asrRun.textContent = r ? 'Transcribe segments in range' : 'Transcribe segments';
+  draw();
+}
+
+function applyRangeInputs() {
+  if (!state.duration) return;
+  const start = rangeStart.value.trim() ? parseClock(rangeStart.value) : 0;
+  const end = rangeEnd.value.trim() ? parseClock(rangeEnd.value) : state.duration;
+  if (start === null || end === null) {
+    setStatus('Range times must look like 1:23.5, 0:01:23 or 83.5.', 'error');
+    return;
+  }
+  const r = normalizeRange(start, end, state.duration);
+  if (r?.invalid) {
+    setStatus('The range end must be at least half a second after its start.', 'error');
+    return;
+  }
+  state.range = r;
+  showRange();
+}
+
+for (const input of [rangeStart, rangeEnd]) {
+  input.addEventListener('change', applyRangeInputs);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyRangeInputs(); } });
+}
+$('range-start-now').addEventListener('click', () => { rangeStart.value = formatRangeClock(el.player.currentTime); applyRangeInputs(); });
+$('range-end-now').addEventListener('click', () => { rangeEnd.value = formatRangeClock(el.player.currentTime); applyRangeInputs(); });
+$('range-reset').addEventListener('click', () => { state.range = null; showRange(); });
+
 el.segRun.addEventListener('click', () => {
   $('seg-menu').open = false;
   setBusy(true);
   setProgress(0);
   worker.postMessage({
     type: 'vad',
+    range: state.range,
     speakers: Number($('vad-speakers').value),
     diarization: { windowSec: Number($('diar-window').value), periodSec: Number($('diar-period').value) },
     options: {
@@ -259,13 +306,18 @@ el.segRun.addEventListener('click', () => {
 
 el.asrRun.addEventListener('click', () => {
   $('asr-menu').open = false;
-  state.asr = {};
+  const targets = state.segments.filter(s => overlapsRange(s, state.range));
+  if (!targets.length) {
+    setStatus('There are no segments in the selected range. Run Auto Segmentation on it first.', 'warning');
+    return;
+  }
+  for (const s of targets) delete state.asr[s.id];
   setBusy(true);
   setProgress(0);
   layout();
   worker.postMessage({
     type: 'asr',
-    segments: state.segments.map(s => ({ id: s.id, start: s.start, end: s.end })),
+    segments: targets.map(s => ({ id: s.id, start: s.start, end: s.end })),
     modelId: el.asrModel.value,
     language: el.asrLanguage.value,
   });
@@ -276,19 +328,22 @@ worker.onmessage = ({ data }) => {
     case 'status': setStatus(data.message); break;
     case 'warning': setStatus(data.message, 'warning'); break;
     case 'progress': setProgress(data.fraction); break;
-    case 'vad_result':
-      state.segments = data.segments;
-      state.speakerCount = data.speakers;
-      state.asr = {};
+    case 'vad_result': {
+      // A range run replaces only the segments inside the range
+      state.segments = mergeSegments(state.segments, data.segments, data.range);
+      const ids = new Set(state.segments.map(s => s.id));
+      for (const id of Object.keys(state.asr)) if (!ids.has(Number(id))) delete state.asr[id];
+      state.speakerCount = Math.max(data.speakers, new Set(state.segments.map(s => s.speakerId)).size);
       state.aligned = [];
       setProgress(null);
       setBusy(false);
       layout();
-      setStatus(`Found ${data.segments.length} speech segments${data.speakers > 1 ? ` from ${data.speakers} speakers` : ''}. Run Speech Recognition next.`);
+      const where = data.range ? ` in ${formatRangeClock(data.range.start)}–${formatRangeClock(data.range.end)}` : '';
+      setStatus(`Found ${data.segments.length} speech segments${where}${data.speakers > 1 ? ` from ${data.speakers} speakers` : ''}. Run Speech Recognition next.`);
       break;
+    }
     case 'asr_segment': {
-      const seg = state.segments[data.index];
-      state.asr[seg.id] = { text: data.text, words: data.words };
+      state.asr[data.id] = { text: data.text, words: data.words };
       setProgress((data.index + 1) / data.total);
       refreshControls();
       renderLanes();
@@ -382,4 +437,5 @@ for (const [code, name] of LANGUAGES) el.asrLanguage.append(new Option(name, cod
 el.asrLanguage.value = 'en';
 refreshControls();
 layout();
+showRange();
 requestAnimationFrame(tick);
