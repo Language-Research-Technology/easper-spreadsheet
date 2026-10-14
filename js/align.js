@@ -11,13 +11,20 @@
 //    neighbouring anchors over detected speech (VAD) time, by character length.
 // 4. Each utterance spans its first to last word; boundaries are snapped to
 //    nearby VAD segment edges and overlaps between utterances are resolved.
+//
+// The transcript may cover more than the processed audio (e.g. only a range was
+// segmented and transcribed). Unused transcript words at either end cost nothing
+// in the alignment, and rows beyond the processed speech are left untimed with
+// status "outside" instead of being squeezed into it.
 
 export const DEFAULTS = Object.freeze({
   minAnchorSimilarity: 0.6, // pair similarity needed for a word to take Whisper's time
   gapPenalty: -0.5,
   snapDistance: 0.3,        // seconds; snap utterance edges to VAD edges this close
   minSpeechPerWord: 0.12,   // seconds of speech needed per unmatched word before borrowing a neighbour's time
-  maxCells: 30_000_000,     // above this, the DP is banded around the diagonal
+  maxBorrow: 3,             // at most this many neighbouring matched words are re-timed per unmatched run
+  edgeSlack: 1.5,           // leeway when deciding whether rows before/after the matches fit the speech there
+  maxCells: 80_000_000,     // above this, the DP is banded around the diagonal
 });
 
 // ── Text normalisation ─────────────────────────────────────────────────────
@@ -75,7 +82,9 @@ export function wordSimilarity(a, b) {
 const DIAG = 0, UP = 1, LEFT = 2;
 
 /**
- * Globally align token arrays `a` (manual) and `b` (ASR).
+ * Align token arrays `a` (manual) and `b` (ASR). All of `b` is aligned, but
+ * unused stretches at the start and end of `a` are free, so the ASR words can
+ * line up with any part of the transcript.
  * Returns an array `pairs` where pairs[i] = { j, sim } for a[i] aligned to b[j],
  * or null when a[i] is aligned to a gap.
  */
@@ -110,6 +119,7 @@ export function alignTokens(a, b, opts = {}) {
   let prev = new Float64Array(hi[0] - lo[0] + 1);
   trace[0] = new Uint8Array(prev.length).fill(LEFT);
   for (let j = lo[0]; j <= hi[0]; j++) prev[j - prevLo] = j * gapPenalty;
+  let endRow = 0, endScore = hi[0] === N ? prev[N - prevLo] : -Infinity;
 
   for (let i = 1; i <= M; i++) {
     const L = lo[i], H = hi[i];
@@ -118,7 +128,9 @@ export function alignTokens(a, b, opts = {}) {
     const prevHi = prevLo + prev.length - 1;
     for (let j = L; j <= H; j++) {
       let best = -Infinity, dir = UP;
-      if (j >= prevLo && j <= prevHi) {               // UP: a[i-1] against a gap
+      if (j === 0) {                                  // leading transcript words before any ASR word: free
+        best = 0;
+      } else if (j >= prevLo && j <= prevHi) {        // UP: a[i-1] against a gap
         best = prev[j - prevLo] + gapPenalty; dir = UP;
       }
       if (j > 0 && j - 1 >= prevLo && j - 1 <= prevHi) { // DIAG: a[i-1] ~ b[j-1]
@@ -133,12 +145,14 @@ export function alignTokens(a, b, opts = {}) {
       tr[j - L] = dir;
     }
     trace[i] = tr;
+    // Trailing transcript words after the last ASR word are free: end on the best row
+    if (H === N && cur[N - L] > endScore) { endScore = cur[N - L]; endRow = i; }
     prev = cur;
     prevLo = L;
   }
 
-  let i = M, j = N;
-  while (i > 0 || j > 0) {
+  let i = endRow, j = N;
+  while (j > 0) {
     const dir = i === 0 ? LEFT : trace[i][j - lo[i]];
     if (dir === DIAG) { pairs[i - 1] = { j: j - 1, sim: sim(i - 1, j - 1) }; i--; j--; }
     else if (dir === UP) { i--; }
@@ -244,20 +258,42 @@ export function alignUtterances(utterances, asrWords, vadSegments, duration, opt
     last = times[i][1];
   }
 
-  let i = 0;
-  while (i < manual.length) {
+  // Words before the first match / after the last one only get times if there is
+  // speech left for them at the speaking rate of the matched stretch; the rest
+  // of the transcript is outside the processed audio.
+  const placed = manual.map(() => true);
+  const anchored = times.flatMap((t, n) => (t ? [n] : []));
+  if (anchored.length) {
+    const first = anchored[0], lastA = anchored[anchored.length - 1];
+    const chars = n => manual[n].w.length + 1;
+    let spanChars = 0;
+    for (let n = first; n <= lastA; n++) spanChars += chars(n);
+    const spanSpeech = substantialSpeech(speech, times[first][0], times[lastA][1], 0);
+    const rate = spanChars && spanSpeech > 0 ? spanSpeech / spanChars : 0.08; // seconds of speech per character
+    let room = (substantialSpeech(speech, speechStart, times[first][0], 0) / rate) * o.edgeSlack;
+    for (let n = first - 1; n >= 0; n--) { room -= chars(n); if (room < 0) placed[n] = false; }
+    room = (substantialSpeech(speech, times[lastA][1], speechEnd, 0) / rate) * o.edgeSlack;
+    for (let n = lastA + 1; n < manual.length; n++) { room -= chars(n); if (room < 0) placed[n] = false; }
+  }
+  const pStart = placed.indexOf(true);
+  const pEnd = placed.lastIndexOf(true) + 1;
+
+  let i = Math.max(0, pStart);
+  while (i < pEnd) {
     if (times[i]) { i++; continue; }
     let k = i;
-    while (k < manual.length && !times[k]) k++;
+    while (k < pEnd && !times[k]) k++;
     // Unanchored run manual[i..k-1], between the previous anchor and the next one.
     // If there's barely any speech between them, Whisper probably misheard these
     // words together with a neighbouring anchor, so re-time that anchor as well.
-    const bound = () => [i > 0 ? times[i - 1][1] : speechStart, k < manual.length ? times[k][0] : speechEnd];
-    while (substantialSpeech(speech, ...bound()) < o.minSpeechPerWord * (k - i)) {
-      if (k < manual.length) {
+    const bound = () => [i > pStart ? times[i - 1][1] : speechStart, k < pEnd ? times[k][0] : speechEnd];
+    let borrowed = 0;
+    while (borrowed < o.maxBorrow && substantialSpeech(speech, ...bound()) < o.minSpeechPerWord * (k - i)) {
+      borrowed++;
+      if (k < pEnd) {
         times[k] = null; sims[k] = 0;
-        while (k < manual.length && !times[k]) k++;
-      } else if (i > 0) {
+        while (k < pEnd && !times[k]) k++;
+      } else if (i > pStart) {
         i--; times[i] = null; sims[i] = 0;
       } else break;
     }
@@ -289,30 +325,33 @@ export function alignUtterances(utterances, asrWords, vadSegments, duration, opt
   }));
   manual.forEach((m, n) => {
     const r = result[m.ui];
+    r.totalWords++;
+    if (!placed[n]) return;
     const [s, e] = times[n];
     r.start = r.start === null ? s : Math.min(r.start, s);
     r.end = r.end === null ? e : Math.max(r.end, e);
-    r.totalWords++;
+    r.placedWords = (r.placedWords ?? 0) + 1;
     if (sims[n] > 0) { r.matchedWords++; r.confidence += sims[n]; }
   });
 
-  // Utterances without any words (blank rows) sit at the end of the previous one
-  let prevEnd = speechStart;
+  // Utterances without any words (e.g. only punctuation) sit at the end of the previous one
+  let prevEnd = null;
   for (const r of result) {
-    if (r.start === null) { r.start = r.end = prevEnd; continue; }
-    prevEnd = r.end;
+    if (r.totalWords) { prevEnd = r.start === null ? null : r.end; continue; }
+    if (prevEnd !== null) r.start = r.end = prevEnd;
   }
 
   for (const r of result) {
-    if (!r.totalWords) continue;
+    if (!r.totalWords) { if (r.start === null) r.status = 'outside'; continue; }
+    if (r.start === null) { r.status = 'outside'; continue; }
     r.confidence = r.confidence / r.totalWords;
     r.status = r.matchedWords === 0 ? 'interpolated' : r.confidence >= 0.75 ? 'matched' : 'partial';
   }
 
-  snapAndResolve(result, speech, o.snapDistance, duration);
+  snapAndResolve(result.filter(r => r.start !== null), speech, o.snapDistance, duration);
   for (const r of result) {
-    r.start = round3(r.start);
-    r.end = round3(r.end);
+    delete r.placedWords;
+    if (r.start !== null) { r.start = round3(r.start); r.end = round3(r.end); }
     r.confidence = Math.round(r.confidence * 100) / 100;
   }
   return result;

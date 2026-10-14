@@ -99,7 +99,7 @@ export function drawWaveform(canvas, v) {
     ctx.fillRect(laneLeft, top, 3.5, h);
   }
   for (const u of v.aligned || []) {
-    if (u.end < t0 || u.start > t1 || u.end <= u.start) continue;
+    if (u.start === null || u.end < t0 || u.start > t1 || u.end <= u.start) continue;
     ctx.fillStyle = u.index === v.selected ? COLORS.selected : COLORS.manual;
     ctx.fillRect(laneLeft + laneWidth - 3, y(u.start), 3, Math.max(2, (u.end - u.start) * pps));
   }

@@ -81,6 +81,29 @@ test('unmatched words with no speech of their own share time with the next match
   assert.equal(b.end, 20.67);
 });
 
+test('a transcript longer than the processed audio: only the rows that were spoken get times', () => {
+  // The transcript has 9 rows; only rows 4-6 were in the segmented range (100-106 s)
+  const rows = ['uno dos tres', 'cuatro cinco', 'seis siete ocho', 'que te compró tu mami', 'amor pero que me lo mida',
+    'le quedó grande', 'van a comprar la camioneta', 'es lo mismo que nosotros', 'hacemos por ejemplo'];
+  const utterances = rows.map(text => ({ text }));
+  const asr = [...timedWords('que te compro tu mami', 100), ...timedWords('amor pero que me lo mira', 102.5), ...timedWords('le quedo grande', 105.5)];
+  const segs = [{ start: 100, end: 102.45 }, { start: 102.5, end: 105.45 }, { start: 105.5, end: 106.95 }];
+  const out = alignUtterances(utterances, asr, segs, 600);
+  assert.deepEqual(out.map(r => r.status), ['outside', 'outside', 'outside', 'matched', 'matched', 'matched', 'outside', 'outside', 'outside']);
+  assert.equal(out[3].start, 100);
+  assert.equal(out[5].end, 106.95);
+  assert.equal(out[0].start, null);
+});
+
+test('re-timing neighbouring matches is capped, so crowded rows cannot wipe out every match', () => {
+  // Far more transcript than speech: without the cap, borrowing cascaded and nothing matched
+  const asr = timedWords('a b c d e f g h i j', 0, 0.2);
+  const utterances = [{ text: 'a b c d e' }, { text: 'zz yy xx ww vv uu tt ss rr qq pp oo' }, { text: 'f g h i j' }];
+  const out = alignUtterances(utterances, asr, [{ start: 0, end: 2 }], 2);
+  assert.equal(out[0].status, 'matched');
+  assert.ok(out[2].matchedWords >= 2, JSON.stringify(out[2]));
+});
+
 test('utterances never overlap and stay in order', () => {
   const asr = timedWords('a b c d e f g h', 0, 0.3);
   const utterances = [{ text: 'a b c' }, { text: 'c d e' }, { text: 'f g h' }];

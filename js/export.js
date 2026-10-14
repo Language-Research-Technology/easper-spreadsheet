@@ -19,7 +19,9 @@ export function toCsv(aligned, withDiarization = false) {
   const lines = [header.join(',')];
   for (const r of aligned) {
     const diar = withDiarization ? [r.diarizedSpeaker ? `S${r.diarizedSpeaker}` : ''] : [];
-    lines.push([r.row, r.speaker, ...diar, r.start.toFixed(3), r.end.toFixed(3), formatTime(r.start), formatTime(r.end), r.confidence.toFixed(2), r.status, r.text].map(csvCell).join(','));
+    const timed = r.start !== null;
+    const times = timed ? [r.start.toFixed(3), r.end.toFixed(3), formatTime(r.start), formatTime(r.end)] : ['', '', '', ''];
+    lines.push([r.row, r.speaker, ...diar, ...times, r.confidence.toFixed(2), r.status, r.text].map(csvCell).join(','));
   }
   return lines.join('\n') + '\n';
 }
