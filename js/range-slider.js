@@ -21,7 +21,11 @@ export function createRangeSlider(root, onChange) {
       <button type="button" class="rs-thumb" data-end="start" role="slider" aria-label="Range start"></button>
       <button type="button" class="rs-thumb" data-end="end" role="slider" aria-label="Range end"></button>
     </div>
-    <div class="rs-labels"><span class="rs-min">00:00</span><span class="rs-selected"></span><span class="rs-max">--:--</span></div>`;
+    <div class="rs-labels"><span class="rs-min">00:00</span><span class="rs-selected"></span><span class="rs-max">--:--</span></div>
+    <div class="rs-times">
+      <div><div class="rs-time-label">Start</div><div class="rs-time rs-start-time">--:--</div></div>
+      <div class="rs-time-end"><div class="rs-time-label">End</div><div class="rs-time rs-end-time">--:--</div></div>
+    </div>`;
 
   const wrap = root.querySelector('.rs-track-wrap');
   const fill = root.querySelector('.rs-fill');
@@ -30,6 +34,8 @@ export function createRangeSlider(root, onChange) {
   const selected = root.querySelector('.rs-selected');
   const maxLabel = root.querySelector('.rs-max');
   const reset = root.querySelector('.rs-reset');
+  const startTime = root.querySelector('.rs-start-time');
+  const endTime = root.querySelector('.rs-end-time');
 
   let duration = 0, start = 0, end = 0;
   const pct = t => (duration ? (t / duration) * 100 : 0);
@@ -52,6 +58,8 @@ export function createRangeSlider(root, onChange) {
     selected.title = duration ? `${formatClock(start)} – ${formatClock(end)}` : '';
     maxLabel.textContent = duration ? formatShortClock(duration) : '--:--';
     reset.hidden = !duration || isFull();
+    startTime.textContent = duration ? formatClock(start) : '--:--';
+    endTime.textContent = duration ? formatClock(end) : '--:--';
   }
 
   function emit() {
