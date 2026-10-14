@@ -37,6 +37,12 @@ python3 -m http.server 5180
 
 then open http://localhost:5180. `samples/` has a 31 s test recording with a manual transcript (CSV and XLSX).
 
+## Deploy
+
+Pushing to `main` runs `.github/workflows/pages.yml`, which runs the tests and publishes to GitHub Pages.
+`scripts/stamp-version.mjs` adds `?v=<commit>` to every local CSS/JS URL in the published copy, so after an
+update browsers never mix new files with stale cached ones.
+
 ## Test
 
 ```bash
