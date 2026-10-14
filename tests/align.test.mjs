@@ -104,6 +104,26 @@ test('re-timing neighbouring matches is capped, so crowded rows cannot wipe out 
   assert.ok(out[2].matchedWords >= 2, JSON.stringify(out[2]));
 });
 
+test('estimated rows are trimmed instead of stretching across a long silence', () => {
+  // Matched rows either side; between them two unmatched rows and speech separated by a 60 s silence
+  const asr = [...timedWords('uno dos tres', 0), ...timedWords('siete ocho nueve', 100)];
+  const segs = [{ start: 0, end: 1.45 }, { start: 2, end: 4 }, { start: 64, end: 66 }, { start: 100, end: 101.45 }];
+  const utterances = [{ text: 'uno dos tres' }, { text: 'cuatro cinco seis' }, { text: 'diez once doce trece' }, { text: 'siete ocho nueve' }];
+  const out = alignUtterances(utterances, asr, segs, 120);
+  for (const r of out) {
+    const silence = segs.some((s, i) => i && s.start - segs[i - 1].end > 2 && r.start < segs[i - 1].end && r.end > s.start);
+    assert.ok(!silence, `row "${r.text}" spans a long silence: ${r.start}-${r.end}`);
+  }
+  assert.equal(out[0].start, 0);
+  assert.equal(out[3].end, 101.45);
+});
+
+test('a matched row keeps a real pause between its matched words', () => {
+  const asr = [...timedWords('hola qué tal', 0), ...timedWords('cómo estás', 5)];
+  const out = alignUtterances([{ text: 'hola qué tal ... cómo estás' }], asr, [{ start: 0, end: 1.45 }, { start: 5, end: 5.95 }], 10);
+  assert.deepEqual([out[0].start, out[0].end], [0, 5.95]);
+});
+
 test('utterances never overlap and stay in order', () => {
   const asr = timedWords('a b c d e f g h', 0, 0.3);
   const utterances = [{ text: 'a b c' }, { text: 'c d e' }, { text: 'f g h' }];
