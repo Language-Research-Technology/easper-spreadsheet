@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Easper Transcript Aligner</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">E</div>
+      <div>
+        <div class="brand-name">Easper</div>
+        <div class="brand-sub">Transcript Aligner</div>
+      </div>
+    </div>
+    <ol class="steps" id="steps">
+      <li data-step="audio">Audio</li>
+      <li data-step="segments">Segments</li>
+      <li data-step="asr">Whisper</li>
+      <li data-step="manual">Manual transcript</li>
+      <li data-step="aligned">Aligned</li>
+    </ol>
+    <label class="btn primary">
+      <input type="file" id="audio-input" accept="audio/*,video/*" hidden>
+      Open audio…
+    </label>
+  </header>
+
+  <main class="card">
+    <div class="card-title">
+      <span>Transcript</span>
+      <span class="file-name" id="file-name">No audio loaded</span>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn" id="play-btn" disabled>▶ Play</button>
+      <label class="slider" title="Zoom (pixels per second)">
+        🔍 <input type="range" id="zoom" min="2" max="120" value="24"> <span id="zoom-value">24</span>
+      </label>
+      <label class="slider" title="Playback speed">
+        ⏱ <input type="range" id="speed" min="0.5" max="2" step="0.05" value="1"> <span id="speed-value">1.00x</span>
+      </label>
+
+      <details class="menu" id="seg-menu">
+        <summary class="btn">✂ Auto Segmentation</summary>
+        <div class="menu-panel">
+          <p class="hint">Silero VAD with Easper's segment clean-up.</p>
+          <label>Speech threshold <input type="number" id="vad-threshold" min="0.1" max="0.9" step="0.05" value="0.5"></label>
+          <label>Merge gaps shorter than (s) <input type="number" id="vad-min-silence" min="0" step="0.1" value="0.5"></label>
+          <label>Discard segments shorter than (s) <input type="number" id="vad-min-segment" min="0" step="0.1" value="0.5"></label>
+          <label>Maximum segment length (s) <input type="number" id="vad-max-segment" min="5" step="1" value="30"></label>
+          <button class="btn primary" id="seg-run" disabled>Run segmentation</button>
+        </div>
+      </details>
+
+      <details class="menu" id="asr-menu">
+        <summary class="btn">🧠 Speech Recognition <span class="badge" id="asr-count" hidden></span></summary>
+        <div class="menu-panel">
+          <p class="hint">Whisper (transformers.js, runs in your browser) on each segment.</p>
+          <label>Model
+            <select id="asr-model">
+              <option value="onnx-community/whisper-tiny_timestamped">Whisper tiny (~70 MB, fastest)</option>
+              <option value="onnx-community/whisper-base_timestamped" selected>Whisper base (~130 MB)</option>
+              <option value="onnx-community/whisper-small_timestamped">Whisper small (~390 MB, most accurate)</option>
+            </select>
+          </label>
+          <label>Language <select id="asr-language"></select></label>
+          <button class="btn primary" id="asr-run" disabled>Transcribe segments</button>
+        </div>
+      </details>
+
+      <details class="menu" id="manual-menu">
+        <summary class="btn">📄 Manual Transcript <span class="badge" id="manual-count" hidden></span></summary>
+        <div class="menu-panel">
+          <p class="hint">One utterance per row, in the order spoken. A header row with a
+            <code>text</code> (or <code>transcription</code>) column and an optional <code>speaker</code>
+            column is recognised; otherwise the first column is used.</p>
+          <label class="btn">
+            <input type="file" id="sheet-input" hidden>
+            Upload spreadsheet (.xlsx, .csv, .tsv, .txt)…
+          </label>
+          <div class="hint" id="sheet-info"></div>
+        </div>
+      </details>
+
+      <button class="btn accent" id="align-btn" disabled>⇄ Align</button>
+
+      <details class="menu right" id="export-menu">
+        <summary class="btn success">⬇ Export</summary>
+        <div class="menu-panel">
+          <button class="btn" id="export-csv" disabled>Spreadsheet with timecodes (.csv)</button>
+          <button class="btn" id="export-eaf" disabled>ELAN file (.eaf)</button>
+        </div>
+      </details>
+    </div>
+
+    <div class="status" id="status">Open an audio file to begin.</div>
+    <div class="progress" id="progress" hidden><div class="progress-bar" id="progress-bar"></div></div>
+
+    <div class="lane-headings">
+      <div class="lane-heading wave-heading">Waveform</div>
+      <div class="lane-heading">Whisper (guide)</div>
+      <div class="lane-heading">Manual transcript (aligned)</div>
+    </div>
+    <div class="timeline" id="timeline">
+      <div class="timeline-content" id="timeline-content">
+        <div class="wave-sticky" id="wave-sticky"><canvas id="wave"></canvas></div>
+        <div class="lane asr-lane" id="asr-lane"></div>
+        <div class="lane manual-lane" id="manual-lane"></div>
+      </div>
+    </div>
+  </main>
+
+  <audio id="player" preload="auto"></audio>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
