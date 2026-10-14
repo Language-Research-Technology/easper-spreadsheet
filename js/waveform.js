@@ -134,6 +134,30 @@ export function drawWaveform(canvas, v) {
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
   ctx.beginPath(); ctx.moveTo(centre, 0); ctx.lineTo(centre, height); ctx.stroke();
 
+  // Working range: dashed edges and the outside dimmed, as in Easper
+  if (v.range) {
+    const ys = y(v.range.start), ye = y(v.range.end);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+    if (ys > 0) ctx.fillRect(laneLeft, 0, laneWidth + 6, Math.min(height, ys));
+    if (ye < height) ctx.fillRect(laneLeft, Math.max(0, ye), laneWidth + 6, height - Math.max(0, ye));
+    ctx.save();
+    ctx.strokeStyle = '#0284c7';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.font = 'bold 9px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = '#38bdf8';
+    ctx.textAlign = 'right';
+    if (ys >= 0 && ys <= height) {
+      ctx.beginPath(); ctx.moveTo(laneLeft, ys); ctx.lineTo(width, ys); ctx.stroke();
+      ctx.textBaseline = 'bottom'; ctx.fillText(`▶ ${formatClock(v.range.start)}`, gutter - 3, ys - 1);
+    }
+    if (ye >= 0 && ye <= height) {
+      ctx.beginPath(); ctx.moveTo(laneLeft, ye); ctx.lineTo(width, ye); ctx.stroke();
+      ctx.textBaseline = 'top'; ctx.fillText(`◀ ${formatClock(v.range.end)}`, gutter - 3, ye + 1);
+    }
+    ctx.restore();
+  }
+
   // Hover line and playhead
   if (v.hoverTime != null && v.hoverTime >= t0 && v.hoverTime <= t1) {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';

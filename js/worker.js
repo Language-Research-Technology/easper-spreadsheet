@@ -67,29 +67,40 @@ async function loadAsr(modelId) {
   return asr;
 }
 
-async function runVad({ options, speakers = 1, diarization = {} }) {
+async function runVad({ options, speakers = 1, diarization = {}, range = null }) {
   const session = await loadVad();
   const diarize = speakers >= 2;
-  status('Scanning audio for speech…');
+  // Work on the selected range only (as Easper does), then shift times back to the whole recording
+  const offset = range ? range.start : 0;
+  const clip = range ? audio.subarray(Math.floor(range.start * SR), Math.ceil(range.end * SR)) : audio;
+  const shift = result => ({
+    ...result,
+    range,
+    segments: result.segments.map(s => ({ ...s, start: round2(s.start + offset), end: round2(s.end + offset) })),
+  });
+  status(range ? `Scanning ${fmt(range.start)}–${fmt(range.end)} for speech…` : 'Scanning audio for speech…');
   const vadOptions = diarize ? { ...options, ...DIARIZATION_DEFAULTS.vad, minSegment: null } : options;
-  const raw = await sileroVad(ort, session, audio, vadOptions, f => post('progress', { fraction: f }));
+  const raw = await sileroVad(ort, session, clip, vadOptions, f => post('progress', { fraction: f }));
   if (!diarize || !raw.length) {
-    post('vad_result', { segments: segmentsCleanup(raw, options), speakers: 1 });
+    post('vad_result', shift({ segments: segmentsCleanup(raw, options), speakers: 1 }));
     return;
   }
 
   try {
-    post('vad_result', await diarizeRegions(raw, speakers, options, diarization));
+    post('vad_result', shift(await diarizeRegions(clip, raw, speakers, options, diarization)));
   } catch (err) {
     // As in Easper: if diarization fails, keep the speech segments with one speaker
     console.warn('Diarization failed:', err);
     post('warning', { message: `Speaker diarization failed (${err?.message || err}); segments use a single speaker.` });
-    post('vad_result', { segments: segmentsCleanup(raw, options), speakers: 1 });
+    post('vad_result', shift({ segments: segmentsCleanup(raw, options), speakers: 1 }));
   }
 }
 
+const round2 = x => Math.round(x * 100) / 100;
+const fmt = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+
 // Speaker diarization, as in Easper: embed sliding windows, cluster, merge into turns
-async function diarizeRegions(raw, speakers, options, { windowSec = DIARIZATION_DEFAULTS.windowSec, periodSec = DIARIZATION_DEFAULTS.periodSec } = {}) {
+async function diarizeRegions(clip, raw, speakers, options, { windowSec = DIARIZATION_DEFAULTS.windowSec, periodSec = DIARIZATION_DEFAULTS.periodSec } = {}) {
   const model = await loadSpeakerModel();
   const windows = raw.flatMap((seg, utteranceIdx) =>
     slidingWindows(seg.start, Math.max(seg.start + 0.1, seg.end), windowSec, periodSec)
@@ -97,9 +108,9 @@ async function diarizeRegions(raw, speakers, options, { windowSec = DIARIZATION_
   const embeddings = [], kept = [];
   for (let i = 0; i < windows.length; i++) {
     const w = windows[i];
-    const a = Math.max(0, Math.min(audio.length - 1, Math.floor(w.start * SR)));
-    const b = Math.min(audio.length, Math.ceil(w.end * SR));
-    embeddings.push(await embed(ort, model, audio.slice(a, Math.max(a + 1600, b))));
+    const a = Math.max(0, Math.min(clip.length - 1, Math.floor(w.start * SR)));
+    const b = Math.min(clip.length, Math.ceil(w.end * SR));
+    embeddings.push(await embed(ort, model, clip.slice(a, Math.max(a + 1600, b))));
     kept.push(w);
     if (i % 8 === 0 || i === windows.length - 1) {
       status(`Extracting speaker embeddings: window ${i + 1} of ${windows.length}…`);
@@ -139,7 +150,7 @@ async function runAsr({ segments, modelId, language }) {
       timestamp: [c.timestamp?.[0] != null ? c.timestamp[0] + seg.start : null, c.timestamp?.[1] != null ? Math.min(seg.end, c.timestamp[1] + seg.start) : null],
     }));
     const words = chunksToWords(chunks.length ? chunks : [{ text, timestamp: [seg.start, seg.end] }], seg.start, seg.end);
-    post('asr_segment', { index: n, total: segments.length, text, words });
+    post('asr_segment', { id: seg.id, index: n, total: segments.length, text, words });
   }
   post('asr_done');
 }
