@@ -19,6 +19,8 @@ merging it into Easper later.
 5. **Align**: the manual words are aligned to Whisper's timed words (fuzzy, so misspellings and
    mis-hearings still match). Matched words take Whisper's times. Unmatched words are spread over
    detected speech between their neighbours. Utterance edges snap to nearby VAD edges.
+   If only part of the audio was processed (see Range), the transcript can still be the full one: Whisper's words
+   line up with the matching stretch, and rows outside the processed audio are left untimed (status `outside`).
    **The manual text is never changed.** Each row gets a confidence score: `matched`, `partial`, or `estimated`.
 6. **Export**: CSV (the rows plus `start`, `end`, `confidence` and `status`) or ELAN `.eaf`
    (manual tiers per speaker, plus Whisper tiers per diarized speaker).

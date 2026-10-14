@@ -165,8 +165,10 @@ function renderLanes() {
     return;
   }
   for (const u of state.aligned) {
+    if (u.start === null) continue; // outside the processed audio
     const node = document.createElement('div');
     node.className = `block manual-block${u.index === state.selected ? ' selected' : ''}`;
+    node.dataset.index = u.index;
     blockStyle(node, u.start, u.end);
     const meta = document.createElement('div');
     meta.className = 'block-meta';
@@ -187,7 +189,7 @@ function renderLanes() {
 function selectUtterance(index, play = false) {
   state.selected = index;
   for (const node of el.manualLane.querySelectorAll('.manual-block')) node.classList.remove('selected');
-  el.manualLane.children[index]?.classList.add('selected');
+  el.manualLane.querySelector(`.manual-block[data-index="${index}"]`)?.classList.add('selected');
   const u = state.aligned[index];
   if (play && u) playSpan(u.start, u.end);
   draw();
@@ -231,10 +233,13 @@ el.canvas.addEventListener('click', e => {
 el.canvas.addEventListener('mousemove', e => { state.hoverTime = (el.timeline.scrollTop + e.offsetY) / state.pps; draw(); });
 el.canvas.addEventListener('mouseleave', () => { state.hoverTime = null; draw(); });
 
+// Zoom slider is logarithmic: 2–600 px per second
+const zoomToPps = v => Math.round(2 * Math.pow(300, v / 100));
+
 el.zoom.addEventListener('input', () => {
   // Zoom around the centre of the view
   const centre = (el.timeline.scrollTop + el.timeline.clientHeight / 2) / state.pps;
-  state.pps = Number(el.zoom.value);
+  state.pps = zoomToPps(Number(el.zoom.value));
   el.zoomValue.textContent = state.pps;
   layout();
   el.timeline.scrollTop = Math.max(0, centre * state.pps - el.timeline.clientHeight / 2);
@@ -398,10 +403,11 @@ el.align.addEventListener('click', () => {
   state.aligned = alignUtterances(state.utterances, words, state.segments, state.duration)
     .map(u => ({ ...u, diarizedSpeaker: dominantSpeaker(u, state.segments) }));
   state.selected = null;
-  const counts = { matched: 0, partial: 0, interpolated: 0 };
+  const counts = { matched: 0, partial: 0, interpolated: 0, outside: 0 };
   for (const u of state.aligned) if (u.status in counts) counts[u.status]++;
+  const outside = counts.outside ? ` ${counts.outside} rows are outside the processed audio and have no times.` : '';
   const note = words.length ? '' : ' No Whisper words yet, so all times are estimated from speech activity.';
-  setStatus(`Aligned ${state.aligned.length} utterances: ${counts.matched} matched, ${counts.partial} partial, ${counts.interpolated} estimated.${note}`, words.length ? '' : 'warning');
+  setStatus(`Aligned ${state.aligned.length} utterances: ${counts.matched} matched, ${counts.partial} partial, ${counts.interpolated} estimated.${outside}${note}`, words.length ? '' : 'warning');
   refreshControls();
   renderLanes();
   draw();
@@ -409,6 +415,7 @@ el.align.addEventListener('click', () => {
 
 /** Diarized speaker overlapping the utterance the most (null if none). */
 function dominantSpeaker(u, segments) {
+  if (u.start === null) return null;
   const overlap = new Map();
   for (const s of segments) {
     const o = Math.min(u.end, s.end) - Math.max(u.start, s.start);
@@ -428,7 +435,7 @@ el.exportEaf.addEventListener('click', () => {
   const speakers = [...new Set(state.aligned.map(u => u.speaker || 'Manual'))];
   const tiers = speakers.map(sp => ({
     id: sp === 'Manual' ? 'Manual' : `Manual - ${sp}`,
-    annotations: state.aligned.filter(u => (u.speaker || 'Manual') === sp),
+    annotations: state.aligned.filter(u => u.start !== null && (u.speaker || 'Manual') === sp),
   }));
   // Whisper tier(s), one per diarized speaker as in Easper
   const speakerIds = [...new Set(state.segments.map(s => s.speakerId))].sort();
