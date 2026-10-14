@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { alignTokens, alignUtterances, chunksToWords, tokenize, wordSimilarity } from '../js/align.js';
+import { alignTokens, alignUtterances, chunksToWords, dropRepetitions, speechText, tokenize, wordSimilarity } from '../js/align.js';
 
 // Whisper words at 0.5 s per word, starting at `t0`
 function timedWords(text, t0 = 0, step = 0.5) {
@@ -114,4 +114,19 @@ test('utterances never overlap and stay in order', () => {
 test('chunksToWords spreads segment-level chunks over their words', () => {
   const words = chunksToWords([{ text: ' ab cd', timestamp: [1, 2] }], 0, 5);
   assert.deepEqual(words, [{ text: 'ab', start: 1, end: 1.5 }, { text: 'cd', start: 1.5, end: 2 }]);
+});
+
+test('dropRepetitions collapses Whisper loops and caps the speaking rate', () => {
+  const loop = timedWords('sabes ' + 'que lo que me hace es '.repeat(20) + 'fin', 0, 0.05);
+  assert.deepEqual(dropRepetitions(loop, 0, 10).map(w => w.text).join(' '), 'sabes que lo que me hace es fin');
+  // Ordinary repeats ("no no") are kept
+  assert.equal(dropRepetitions(timedWords('no no quiero'), 0, 2).length, 3);
+  assert.equal(dropRepetitions(timedWords('a b c d e f g h i j k l m'), 0, 1).length, 6);
+});
+
+test('speechText drops transcription conventions that are not speech', () => {
+  assert.deepEqual(tokenize(speechText('...(6.0) Qué te compró tu mami? ((A HAS JUST GOT OFF THE PHONE FROM HER))')), ['qué', 'te', 'compró', 'tu', 'mami']);
+  assert.deepEqual(tokenize(speechText('XX --')), []);
+  assert.deepEqual(tokenize(speechText('[Me=] -- pero que me lo mi=da,')), ['me', 'pero', 'que', 'me', 'lo', 'mida']);
+  assert.deepEqual(tokenize(speechText('Xavier dijo')), ['xavier', 'dijo']);
 });

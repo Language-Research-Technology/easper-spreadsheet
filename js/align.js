@@ -42,6 +42,20 @@ function baseForm(word) {
   return word.normalize('NFD').replace(/\p{M}/gu, '');
 }
 
+/**
+ * Remove transcription conventions that aren't spoken words, so they don't
+ * take part in matching: ((comments)), (1.5) pause lengths, <tags>, and
+ * unintelligible syllables (X, XX). Used for alignment only; the displayed and
+ * exported text is unchanged.
+ */
+export function speechText(text) {
+  return String(text ?? '')
+    .replace(/\(\([^)]*\)\)/g, ' ')          // ((COMMENT))
+    .replace(/\(\s*\d+(?:\.\d+)?\s*\)/g, ' ')  // (6.0) pause length
+    .replace(/<[^<>]*>/g, ' ')               // <TAG ...> markup
+    .replace(/(^|\s)[\[\]=.,?!-]*X+[\[\]=.,?!-]*(?=\s|$)/g, ' '); // X, XX unintelligible
+}
+
 export function tokenize(text) {
   return String(text ?? '')
     .split(/\s+/)
@@ -232,7 +246,7 @@ export function alignUtterances(utterances, asrWords, vadSegments, duration, opt
   // Flatten manual words, remembering their utterance
   const manual = [];
   utterances.forEach((u, ui) => {
-    for (const w of tokenize(u.text)) manual.push({ w, ui });
+    for (const w of tokenize(speechText(u.text))) manual.push({ w, ui });
   });
   const asr = [];
   for (const word of asrWords || []) {
@@ -390,6 +404,29 @@ function snapAndResolve(result, speech, snapDistance, duration) {
 }
 
 const round3 = x => Math.round(x * 1000) / 1000;
+
+/**
+ * Guard against Whisper's repetition loops ("que lo que me hace es que lo que me
+ * hace es …"): a phrase of up to 10 words repeated 3+ times in a row is kept
+ * once, and words beyond a humanly possible speaking rate are dropped.
+ */
+export function dropRepetitions(words, segStart, segEnd, maxWordsPerSecond = 6) {
+  const key = w => normalizeWord(w.text);
+  let out = words.slice();
+  for (let n = 1; n <= 10; n++) {
+    const kept = [];
+    for (let i = 0; i < out.length; ) {
+      let reps = 1;
+      while (i + (reps + 1) * n <= out.length &&
+        out.slice(i + reps * n, i + (reps + 1) * n).every((w, k) => key(w) === key(out[i + k]))) reps++;
+      if (reps >= 3) { kept.push(...out.slice(i, i + n)); i += reps * n; }
+      else { kept.push(out[i]); i++; }
+    }
+    out = kept;
+  }
+  const max = Math.max(1, Math.ceil((segEnd - segStart) * maxWordsPerSecond));
+  return out.length > max ? out.slice(0, max) : out;
+}
 
 /**
  * Turn Whisper chunk output into timed words. Word-level chunks are used as-is;

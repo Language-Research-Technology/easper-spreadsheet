@@ -4,7 +4,7 @@ import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transfo
 import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.wasm.min.mjs';
 import { sileroVad, segmentsCleanup } from './segments.js';
 import { DIARIZATION_DEFAULTS, EMBEDDING_MODEL_URL, embed, slidingWindows, clusterEmbeddings, mergeWindows } from './diarize.js';
-import { chunksToWords } from './align.js';
+import { chunksToWords, dropRepetitions } from './align.js';
 
 const SILERO_URL = 'https://huggingface.co/onnx-community/silero-vad/resolve/main/onnx/model.onnx';
 const SR = 16000;
@@ -149,8 +149,11 @@ async function runAsr({ segments, modelId, language }) {
       text: String(c.text ?? '').replace(/\[BLANK_AUDIO\]/g, ''),
       timestamp: [c.timestamp?.[0] != null ? c.timestamp[0] + seg.start : null, c.timestamp?.[1] != null ? Math.min(seg.end, c.timestamp[1] + seg.start) : null],
     }));
-    const words = chunksToWords(chunks.length ? chunks : [{ text, timestamp: [seg.start, seg.end] }], seg.start, seg.end);
-    post('asr_segment', { id: seg.id, index: n, total: segments.length, text, words });
+    const rawWords = chunksToWords(chunks.length ? chunks : [{ text, timestamp: [seg.start, seg.end] }], seg.start, seg.end);
+    const words = dropRepetitions(rawWords, seg.start, seg.end);
+    // Show what the aligner will use when a repetition loop was removed
+    const shown = words.length < rawWords.length ? `${words.map(w => w.text).join(' ')} [repetition removed]` : text;
+    post('asr_segment', { id: seg.id, index: n, total: segments.length, text: shown, words });
   }
   post('asr_done');
 }

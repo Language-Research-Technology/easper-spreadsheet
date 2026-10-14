@@ -74,8 +74,8 @@
           <label>Model
             <select id="asr-model">
               <option value="onnx-community/whisper-tiny_timestamped">Whisper tiny (~70 MB, fastest)</option>
-              <option value="onnx-community/whisper-base_timestamped" selected>Whisper base (~130 MB)</option>
-              <option value="onnx-community/whisper-small_timestamped">Whisper small (~390 MB, most accurate)</option>
+              <option value="onnx-community/whisper-base_timestamped">Whisper base (~130 MB)</option>
+              <option value="onnx-community/whisper-small_timestamped" selected>Whisper small (~390 MB, most accurate; Easper's default)</option>
             </select>
           </label>
           <label>Language <select id="asr-language"></select></label>
@@ -86,14 +86,20 @@
       <details class="menu" id="manual-menu">
         <summary class="btn">📄 Manual Transcript <span class="badge" id="manual-count" hidden></span></summary>
         <div class="menu-panel">
-          <p class="hint">One utterance per row, in the order spoken. A header row with a
-            <code>text</code> (or <code>transcription</code>) column and an optional <code>speaker</code>
-            column is recognised; otherwise the first column is used.</p>
+          <p class="hint">One utterance per row, in the order spoken. The sheet, header row, and text and speaker
+            columns are detected automatically, and you can change them below after uploading.</p>
           <label class="btn">
             <input type="file" id="sheet-input" hidden>
             Upload spreadsheet (.xlsx, .csv, .tsv, .txt)…
           </label>
           <div class="hint" id="sheet-info"></div>
+          <div class="mapping" id="sheet-mapping" hidden>
+            <label id="map-sheet-row">Sheet <select id="map-sheet"></select></label>
+            <label class="check"><input type="checkbox" id="map-header"> First row is a header</label>
+            <label>Text column <select id="map-text"></select></label>
+            <label>Speaker column <select id="map-speaker"></select></label>
+            <div class="map-preview" id="map-preview"></div>
+          </div>
         </div>
       </details>
 

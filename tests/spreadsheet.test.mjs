@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDelimited, parseTextFile, rowsToUtterances } from '../js/spreadsheet.js';
+import { chooseSheet, columnLetter, describeColumns, detectMapping, parseDelimited, parseTextFile, rowsToUtterances, toUtterances } from '../js/spreadsheet.js';
 import { segmentsCleanup } from '../js/segments.js';
 import { toCsv, toEaf } from '../js/export.js';
 
@@ -48,4 +48,31 @@ test('exports include timecodes', () => {
   const eaf = toEaf('rec.wav', [{ id: 'Manual', annotations: aligned }]);
   assert.match(eaf, /TIME_VALUE="1500"/);
   assert.match(eaf, /<ANNOTATION_VALUE>hi, &quot;you&quot;<\/ANNOTATION_VALUE>/);
+});
+
+test('workbook: picks the transcript sheet, the IU column and the Name column', () => {
+  const pivot = [[], [], ['Row Labels', 'Count of Transcript'], ['1', '83'], ['2', '70']];
+  const rows = [['Transcript', 'Time', 'IU #', 'Name', 'IU', 'Comments']];
+  for (let i = 1; i <= 10; i++) rows.push(['03 Familia', '', String(i), i % 2 ? 'Ángela' : 'Santi', `frase número ${i}`, '']);
+  const { name, utterances } = chooseSheet([{ name: 'Sheet2', rows: pivot }, { name: 'Sheet1', rows }]);
+  assert.equal(name, 'Sheet1');
+  assert.deepEqual(utterances[0], { row: 2, text: 'frase número 1', speaker: 'Ángela' });
+  assert.equal(utterances.length, 10);
+});
+
+test('columnLetter follows spreadsheet naming', () => {
+  assert.deepEqual([0, 4, 25, 26, 27, 701, 702].map(columnLetter), ['A', 'E', 'Z', 'AA', 'AB', 'ZZ', 'AAA']);
+});
+
+test('detectMapping and describeColumns support choosing columns by hand', () => {
+  const rows = [[], ['Recording', 'Who', 'Utterance text', 'Notes'], ['r1', 'Ana', 'hola', ''], ['r1', 'Ben', 'qué tal', 'x'], ['r1', 'Ana', '', '']];
+  // Unrecognised headers: no header assumed, first column with text used
+  assert.deepEqual(detectMapping(rows), { headerRow: -1, textCol: 0, speakerCol: -1 });
+  const cols = describeColumns(rows, 1);
+  assert.deepEqual(cols.map(c => [c.letter, c.header, c.sample]), [['A', 'Recording', 'r1'], ['B', 'Who', 'Ana'], ['C', 'Utterance text', 'hola'], ['D', 'Notes', 'x']]);
+  // The user's choice: header on row 2, text in C, speaker in B
+  assert.deepEqual(toUtterances(rows, { headerRow: 1, textCol: 2, speakerCol: 1 }), [
+    { row: 3, text: 'hola', speaker: 'Ana' }, { row: 4, text: 'qué tal', speaker: 'Ben' },
+  ]);
+  assert.deepEqual(toUtterances(rows, { headerRow: -1, textCol: 2, speakerCol: -1 }).map(u => u.text), ['Utterance text', 'hola', 'qué tal']);
 });
