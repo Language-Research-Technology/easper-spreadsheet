@@ -76,6 +76,7 @@ body { margin: 0; background: var(--bg); height: 100vh; display: flex; flex-dire
 .mapping { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .mapping select { width: 230px; max-width: 230px; }
 .menu-panel .mapping label.check { justify-content: flex-start; gap: 6px; }
+.menu-panel .mapping label.check.disabled { color: var(--muted); }
 .map-preview { font-size: 12px; border: 1px solid var(--border); border-radius: 6px; max-height: 150px; overflow: auto; }
 .map-preview div { display: flex; gap: 6px; padding: 3px 6px; border-top: 1px solid #f1f5f9; }
 .map-preview div:first-child { border-top: 0; }

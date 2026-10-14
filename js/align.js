@@ -266,12 +266,15 @@ export function alignUtterances(utterances, asrWords, vadSegments, duration, opt
       sims[i] = p.sim;
     }
   });
-  // Keep anchors monotonic (Whisper word times can jitter backwards)
-  let last = -Infinity;
+  // Keep anchors in time order (Whisper word times can jitter backwards). Order by
+  // start time and trim an anchor's end to the next one's start, so a single word
+  // with a bad, overlong end time can't knock out the matches after it.
+  let prev = -1;
   for (let i = 0; i < times.length; i++) {
     if (!times[i]) continue;
-    if (times[i][0] < last) { times[i] = null; sims[i] = 0; continue; }
-    last = times[i][1];
+    if (prev >= 0 && times[i][0] < times[prev][0]) { times[i] = null; sims[i] = 0; continue; }
+    if (prev >= 0 && times[prev][1] > times[i][0]) times[prev] = [times[prev][0], Math.max(times[prev][0], times[i][0])];
+    prev = i;
   }
 
   // Words before the first match / after the last one only get times if there is
@@ -330,6 +333,7 @@ export function alignUtterances(utterances, asrWords, vadSegments, duration, opt
   const result = utterances.map((u, ui) => ({
     index: ui,
     row: u.row ?? ui + 1,
+    ...(u.rowEnd ? { rowEnd: u.rowEnd } : {}),
     speaker: u.speaker ?? '',
     text: u.text,
     start: null,
@@ -471,22 +475,25 @@ export function dropRepetitions(words, segStart, segEnd, maxWordsPerSecond = 6) 
  * Turn Whisper chunk output into timed words. Word-level chunks are used as-is;
  * longer chunks have their time shared among their words by character length.
  */
-export function chunksToWords(chunks, segStart, segEnd) {
+export function chunksToWords(chunks, segStart, segEnd, maxWordSeconds = 2) {
   const words = [];
-  for (const chunk of chunks || []) {
-    const text = String(chunk.text ?? '').trim();
-    if (!text) continue;
+  const list = (chunks || []).filter(c => String(c.text ?? '').trim());
+  list.forEach((chunk, idx) => {
+    const text = String(chunk.text).trim();
     const [cs, ce] = Array.isArray(chunk.timestamp) ? chunk.timestamp : [null, null];
     const s = Number.isFinite(cs) ? cs : segStart;
-    const e = Number.isFinite(ce) && ce > s ? ce : segEnd;
+    // A missing end runs to the next chunk, not to the end of the segment
+    const next = list[idx + 1]?.timestamp?.[0];
+    const e = Number.isFinite(ce) && ce > s ? ce : Math.max(s, Number.isFinite(next) ? next : segEnd);
     const parts = text.split(/\s+/).filter(Boolean);
     const total = parts.reduce((acc, p) => acc + p.length, 0) || 1;
     let t = s;
     for (const p of parts) {
       const d = (e - s) * (p.length / total);
-      words.push({ text: p, start: round3(t), end: round3(t + d) });
+      // Whisper sometimes stretches a word to the end of the segment; no word lasts this long
+      words.push({ text: p, start: round3(t), end: round3(t + Math.min(d, maxWordSeconds)) });
       t += d;
     }
-  }
+  });
   return words;
 }

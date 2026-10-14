@@ -21,7 +21,8 @@ export function toCsv(aligned, withDiarization = false) {
     const diar = withDiarization ? [r.diarizedSpeaker ? `S${r.diarizedSpeaker}` : ''] : [];
     const timed = r.start !== null;
     const times = timed ? [r.start.toFixed(3), r.end.toFixed(3), formatTime(r.start), formatTime(r.end)] : ['', '', '', ''];
-    lines.push([r.row, r.speaker, ...diar, ...times, r.confidence.toFixed(2), r.status, r.text].map(csvCell).join(','));
+    const row = r.rowEnd && r.rowEnd !== r.row ? `${r.row}-${r.rowEnd}` : r.row;
+    lines.push([row, r.speaker, ...diar, ...times, r.confidence.toFixed(2), r.status, r.text].map(csvCell).join(','));
   }
   return lines.join('\n') + '\n';
 }

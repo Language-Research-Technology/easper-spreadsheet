@@ -110,6 +110,26 @@ export function toUtterances(rows, { headerRow = -1, textCol = 0, speakerCol = -
   return utterances;
 }
 
+/**
+ * Join runs of consecutive rows from the same speaker into one utterance,
+ * e.g. a turn transcribed as several intonation units. Merged utterances keep
+ * the first row number and gain rowEnd.
+ */
+export function mergeSpeakerRuns(utterances) {
+  const out = [];
+  for (const u of utterances) {
+    const last = out[out.length - 1];
+    if (last && u.speaker && u.speaker === last.speaker) {
+      last.text = `${last.text} ${u.text}`;
+      last.rowEnd = u.row;
+    } else out.push({ ...u });
+  }
+  return out;
+}
+
+/** Row label for an utterance: "5" or "5–9" for merged rows. */
+export const rowLabel = u => (u.rowEnd && u.rowEnd !== u.row ? `${u.row}–${u.rowEnd}` : `${u.row}`);
+
 /** Convert raw rows (arrays of cells) to [{row, text, speaker}] using the detected mapping. */
 export function rowsToUtterances(rows) {
   if (firstRowIndex(rows) < 0) throw new Error('The spreadsheet is empty.');

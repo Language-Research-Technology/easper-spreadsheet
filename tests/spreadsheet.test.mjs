@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseSheet, columnLetter, describeColumns, detectMapping, parseDelimited, parseTextFile, rowsToUtterances, toUtterances } from '../js/spreadsheet.js';
+import { chooseSheet, columnLetter, describeColumns, detectMapping, mergeSpeakerRuns, parseDelimited, parseTextFile, rowLabel, rowsToUtterances, toUtterances } from '../js/spreadsheet.js';
 import { segmentsCleanup } from '../js/segments.js';
 import { toCsv, toEaf } from '../js/export.js';
 
@@ -75,4 +75,16 @@ test('detectMapping and describeColumns support choosing columns by hand', () =>
     { row: 3, text: 'hola', speaker: 'Ana' }, { row: 4, text: 'qué tal', speaker: 'Ben' },
   ]);
   assert.deepEqual(toUtterances(rows, { headerRow: -1, textCol: 2, speakerCol: -1 }).map(u => u.text), ['Utterance text', 'hola', 'qué tal']);
+});
+
+test('mergeSpeakerRuns joins consecutive rows from the same speaker', () => {
+  const u = [
+    { row: 2, text: 'Me compró=,', speaker: 'Ángela' }, { row: 3, text: '.. una pijama,', speaker: 'Ángela' },
+    { row: 4, text: 'Ah?', speaker: 'Santi' }, { row: 5, text: 'sí', speaker: 'Ángela' }, { row: 6, text: 'no', speaker: '' }, { row: 7, text: 'eso', speaker: '' },
+  ];
+  const merged = mergeSpeakerRuns(u);
+  assert.deepEqual(merged.map(m => [rowLabel(m), m.speaker, m.text]), [
+    ['2–3', 'Ángela', 'Me compró=, .. una pijama,'], ['4', 'Santi', 'Ah?'], ['5', 'Ángela', 'sí'], ['6', '', 'no'], ['7', '', 'eso'],
+  ]);
+  assert.equal(u[0].text, 'Me compró=,'); // input untouched
 });

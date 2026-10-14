@@ -131,6 +131,22 @@ test('utterances never overlap and stay in order', () => {
   for (let i = 1; i < out.length; i++) assert.ok(out[i].start >= out[i - 1].end, JSON.stringify(out));
 });
 
+test('one overlong Whisper word does not knock out the matches after it', () => {
+  // "que" ends 11 s late (a timestamp glitch); the next matched rows must still keep their times
+  const asr = timedWords('es que lo que me aterra es eso no digo que es un crédito muy grande', 318, 0.3);
+  asr[1].end = 329.69;
+  const segs = [{ start: 318, end: 329.69 }];
+  const out = alignUtterances([{ text: 'Es que lo que me aterra es eso,' }, { text: 'No, me dijo que' }, { text: 'es un crédito muy grande,' }], asr, segs, 400);
+  assert.deepEqual(out.map(r => r.status), ['matched', 'partial', 'matched']);
+  assert.ok(out[0].end < 321, JSON.stringify(out[0]));
+  assert.ok(out[2].start > 321 && out[2].end < 323.5, JSON.stringify(out[2]));
+});
+
+test('chunksToWords: missing ends run to the next word, and no word exceeds 2 s', () => {
+  const words = chunksToWords([{ text: 'hola', timestamp: [1, null] }, { text: 'qué', timestamp: [1.4, 1.6] }, { text: 'tal', timestamp: [1.7, 12] }], 0, 12);
+  assert.deepEqual(words.map(w => [w.start, w.end]), [[1, 1.4], [1.4, 1.6], [1.7, 3.7]]);
+});
+
 test('chunksToWords spreads segment-level chunks over their words', () => {
   const words = chunksToWords([{ text: ' ab cd', timestamp: [1, 2] }], 0, 5);
   assert.deepEqual(words, [{ text: 'ab', start: 1, end: 1.5 }, { text: 'cd', start: 1.5, end: 2 }]);
