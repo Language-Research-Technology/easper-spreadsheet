@@ -98,6 +98,10 @@ body { margin: 0; background: var(--bg); height: 100vh; display: flex; flex-dire
 }
 .rs-labels { display: flex; justify-content: space-between; font: 12px ui-monospace, Menlo, monospace; color: var(--muted); }
 .rs-selected { font: 700 12px system-ui, sans-serif; color: var(--primary); cursor: default; }
+.rs-times { display: flex; justify-content: space-between; margin-top: 8px; }
+.rs-time-end { text-align: right; }
+.rs-time-label { font: 700 11px system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #475569; }
+.rs-time { font: 700 15px ui-monospace, Menlo, monospace; color: var(--text); }
 #export-menu { margin-left: auto; }
 
 .status { margin: 8px 16px 0; font-size: 13px; color: var(--muted); min-height: 18px; }
