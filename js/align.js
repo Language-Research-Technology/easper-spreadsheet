@@ -19,11 +19,13 @@
 
 export const DEFAULTS = Object.freeze({
   minAnchorSimilarity: 0.6, // pair similarity needed for a word to take Whisper's time
-  gapPenalty: -0.5,
+  gapPenalty: -0.5,         // an ASR word with no transcript word (e.g. a hallucination)
+  skipPenalty: -0.2,        // a transcript word Whisper didn't produce (common: missed or unclear words)
   snapDistance: 0.3,        // seconds; snap utterance edges to VAD edges this close
   minSpeechPerWord: 0.12,   // seconds of speech needed per unmatched word before borrowing a neighbour's time
   maxBorrow: 3,             // at most this many neighbouring matched words are re-timed per unmatched run
   edgeSlack: 1.5,           // leeway when deciding whether rows before/after the matches fit the speech there
+  maxSilence: 2,            // seconds; rows with estimated words are trimmed rather than span a longer silence
   maxCells: 80_000_000,     // above this, the DP is banded around the diagonal
 });
 
@@ -103,7 +105,7 @@ const DIAG = 0, UP = 1, LEFT = 2;
  * or null when a[i] is aligned to a gap.
  */
 export function alignTokens(a, b, opts = {}) {
-  const { gapPenalty, maxCells } = { ...DEFAULTS, ...opts };
+  const { gapPenalty, skipPenalty, maxCells } = { ...DEFAULTS, ...opts };
   const M = a.length, N = b.length;
   const pairs = new Array(M).fill(null);
   if (!M || !N) return pairs;
@@ -145,7 +147,7 @@ export function alignTokens(a, b, opts = {}) {
       if (j === 0) {                                  // leading transcript words before any ASR word: free
         best = 0;
       } else if (j >= prevLo && j <= prevHi) {        // UP: a[i-1] against a gap
-        best = prev[j - prevLo] + gapPenalty; dir = UP;
+        best = prev[j - prevLo] + skipPenalty; dir = UP;
       }
       if (j > 0 && j - 1 >= prevLo && j - 1 <= prevHi) { // DIAG: a[i-1] ~ b[j-1]
         const v = prev[j - 1 - prevLo] + (2 * sim(i - 1, j - 1) - 1);
@@ -345,8 +347,17 @@ export function alignUtterances(utterances, asrWords, vadSegments, duration, opt
     r.start = r.start === null ? s : Math.min(r.start, s);
     r.end = r.end === null ? e : Math.max(r.end, e);
     r.placedWords = (r.placedWords ?? 0) + 1;
-    if (sims[n] > 0) { r.matchedWords++; r.confidence += sims[n]; }
+    if (sims[n] > 0) {
+      r.matchedWords++; r.confidence += sims[n];
+      r.anchorStart = Math.min(r.anchorStart ?? Infinity, s);
+      r.anchorEnd = Math.max(r.anchorEnd ?? -Infinity, e);
+    }
   });
+
+  // Rows with estimated words shouldn't stretch across long silences
+  for (const r of result) {
+    if (r.start !== null && r.matchedWords < r.placedWords) clipToSpeech(r, speech, o.maxSilence);
+  }
 
   // Utterances without any words (e.g. only punctuation) sit at the end of the previous one
   let prevEnd = null;
@@ -364,11 +375,39 @@ export function alignUtterances(utterances, asrWords, vadSegments, duration, opt
 
   snapAndResolve(result.filter(r => r.start !== null), speech, o.snapDistance, duration);
   for (const r of result) {
-    delete r.placedWords;
+    delete r.placedWords; delete r.anchorStart; delete r.anchorEnd;
     if (r.start !== null) { r.start = round3(r.start); r.end = round3(r.end); }
     r.confidence = Math.round(r.confidence * 100) / 100;
   }
   return result;
+}
+
+/**
+ * Trim a row whose span crosses a silence longer than `maxSilence` to one stretch
+ * of speech: the stretch(es) around its matched words if it has any, otherwise
+ * the stretch it overlaps most. Interpolation can otherwise spread a row's
+ * estimated words over speech either side of a long pause.
+ */
+function clipToSpeech(r, speech, maxSilence) {
+  // Stretches of speech inside the row, joined across pauses shorter than maxSilence
+  const stretches = [];
+  for (const [s, e] of speech) {
+    const a = Math.max(s, r.start), b = Math.min(e, r.end);
+    if (b <= a) continue;
+    const last = stretches[stretches.length - 1];
+    if (last && a - last[1] < maxSilence) last[1] = b;
+    else stretches.push([a, b]);
+  }
+  if (stretches.length < 2) return;
+  let keep;
+  if (r.anchorStart !== undefined) {
+    keep = stretches.filter(([a, b]) => b >= r.anchorStart && a <= r.anchorEnd);
+    if (!keep.length) return;
+  } else {
+    keep = [stretches.reduce((best, x) => (x[1] - x[0] > best[1] - best[0] ? x : best))];
+  }
+  r.start = Math.min(keep[0][0], r.anchorStart ?? Infinity);
+  r.end = Math.max(keep[keep.length - 1][1], r.anchorEnd ?? -Infinity);
 }
 
 function snapAndResolve(result, speech, snapDistance, duration) {
