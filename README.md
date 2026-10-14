@@ -22,7 +22,9 @@ Everything runs locally in the browser. Models are downloaded from Hugging Face 
 
 ## Run
 
-Any static file server works, e.g.
+Live: https://language-research-technology.github.io/easper-spreadsheet/
+
+Locally, any static file server works, e.g.
 
 ```bash
 python3 -m http.server 5180
