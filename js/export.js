@@ -14,11 +14,12 @@ function csvCell(v) {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-export function toCsv(aligned) {
-  const header = ['row', 'speaker', 'start', 'end', 'start_time', 'end_time', 'confidence', 'status', 'text'];
+export function toCsv(aligned, withDiarization = false) {
+  const header = ['row', 'speaker', ...(withDiarization ? ['diarized_speaker'] : []), 'start', 'end', 'start_time', 'end_time', 'confidence', 'status', 'text'];
   const lines = [header.join(',')];
   for (const r of aligned) {
-    lines.push([r.row, r.speaker, r.start.toFixed(3), r.end.toFixed(3), formatTime(r.start), formatTime(r.end), r.confidence.toFixed(2), r.status, r.text].map(csvCell).join(','));
+    const diar = withDiarization ? [r.diarizedSpeaker ? `S${r.diarizedSpeaker}` : ''] : [];
+    lines.push([r.row, r.speaker, ...diar, r.start.toFixed(3), r.end.toFixed(3), formatTime(r.start), formatTime(r.end), r.confidence.toFixed(2), r.status, r.text].map(csvCell).join(','));
   }
   return lines.join('\n') + '\n';
 }

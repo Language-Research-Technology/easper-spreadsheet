@@ -1,5 +1,5 @@
 import { decodeTo16kMono, computePeaks, SAMPLE_RATE } from './audio.js';
-import { drawWaveform, formatClock } from './waveform.js';
+import { drawWaveform, formatClock, speakerColor } from './waveform.js';
 import { readSpreadsheetFile, ACCEPT } from './spreadsheet.js';
 import { alignUtterances } from './align.js';
 import { toCsv, toEaf, download, formatTime } from './export.js';
@@ -27,7 +27,8 @@ const el = {
 
 const state = {
   file: null, samples: null, peaks: null, duration: 0,
-  segments: [],      // VAD segments [{id, start, end}]
+  segments: [],      // VAD segments [{id, start, end, speakerId}]
+  speakerCount: 1,   // speakers found by diarization
   asr: {},           // segment id -> {text, words}
   utterances: [],    // manual transcript rows [{row, text, speaker}]
   aligned: [],       // alignment result
@@ -81,7 +82,7 @@ function layout() {
 function draw() {
   drawWaveform(el.canvas, {
     peaks: state.peaks, duration: state.duration, pps: state.pps, scrollTop: el.timeline.scrollTop,
-    segments: state.segments, asrSegments: state.asr, aligned: state.aligned, selected: state.selected,
+    segments: state.segments, asrSegments: state.asr, aligned: state.aligned, selected: state.selected, speakerCount: state.speakerCount,
     currentTime: el.player.currentTime, hoverTime: state.hoverTime,
   });
 }
@@ -101,7 +102,9 @@ function renderLanes() {
     const node = document.createElement('div');
     node.className = `block asr-block${asr ? ' done' : ''}`;
     blockStyle(node, seg.start, seg.end);
-    node.innerHTML = `<div class="block-meta">${formatClock(seg.start)}–${formatClock(seg.end)}</div>`;
+    const colour = speakerColor(seg.speakerId);
+    if (asr || state.speakerCount > 1) node.style.borderLeftColor = colour.primary;
+    node.innerHTML = `<div class="block-meta">${state.speakerCount > 1 ? `<span class="chip" style="background:${colour.primary}">S${seg.speakerId}</span>` : ''}${formatClock(seg.start)}–${formatClock(seg.end)}</div>`;
     node.append(document.createTextNode(asr ? asr.text || '(no speech recognised)' : '…'));
     node.addEventListener('click', () => playSpan(seg.start, seg.end));
     el.asrLane.append(node);
@@ -121,11 +124,13 @@ function renderLanes() {
     blockStyle(node, u.start, u.end);
     const meta = document.createElement('div');
     meta.className = 'block-meta';
-    meta.innerHTML = `${u.speaker ? `<span class="chip"></span>` : ''}<button class="play-mini" title="Play">▶</button>
+    const diar = state.speakerCount > 1 && u.diarizedSpeaker
+      ? `<span class="chip" style="background:${speakerColor(u.diarizedSpeaker).primary}" title="Diarized speaker with the most overlap">S${u.diarizedSpeaker}</span>` : '';
+    meta.innerHTML = `${diar}${u.speaker ? `<span class="chip sheet-speaker" title="Speaker from the spreadsheet"></span>` : ''}<button class="play-mini" title="Play">▶</button>
       <span>${formatTime(u.start)} – ${formatTime(u.end)}</span>
       <span class="conf ${u.status}" title="${u.matchedWords}/${u.totalWords} words matched Whisper">${u.status === 'interpolated' ? 'estimated' : Math.round(u.confidence * 100) + '%'}</span>
       <span>row ${u.row}</span>`;
-    if (u.speaker) meta.querySelector('.chip').textContent = u.speaker;
+    if (u.speaker) meta.querySelector('.sheet-speaker').textContent = u.speaker;
     node.append(meta, document.createTextNode(u.text));
     node.addEventListener('click', () => selectUtterance(u.index, true));
     meta.querySelector('.play-mini').addEventListener('click', e => { e.stopPropagation(); selectUtterance(u.index, true); });
@@ -217,7 +222,7 @@ el.audioInput.addEventListener('change', async () => {
     const samples = await decodeTo16kMono(file);
     Object.assign(state, {
       file, samples, peaks: computePeaks(samples), duration: samples.length / SAMPLE_RATE,
-      segments: [], asr: {}, aligned: [], selected: null,
+      segments: [], speakerCount: 1, asr: {}, aligned: [], selected: null,
     });
     if (el.player.src) URL.revokeObjectURL(el.player.src);
     el.player.src = URL.createObjectURL(file);
@@ -241,6 +246,7 @@ el.segRun.addEventListener('click', () => {
   setProgress(0);
   worker.postMessage({
     type: 'vad',
+    speakers: Number($('vad-speakers').value),
     options: {
       threshold: Number($('vad-threshold').value),
       minSilence: Number($('vad-min-silence').value),
@@ -271,12 +277,13 @@ worker.onmessage = ({ data }) => {
     case 'progress': setProgress(data.fraction); break;
     case 'vad_result':
       state.segments = data.segments;
+      state.speakerCount = data.speakers;
       state.asr = {};
       state.aligned = [];
       setProgress(null);
       setBusy(false);
       layout();
-      setStatus(`Found ${data.segments.length} speech segments. Run Speech Recognition next.`);
+      setStatus(`Found ${data.segments.length} speech segments${data.speakers > 1 ? ` from ${data.speakers} speakers` : ''}. Run Speech Recognition next.`);
       break;
     case 'asr_segment': {
       const seg = state.segments[data.index];
@@ -322,7 +329,8 @@ el.sheetInput.addEventListener('change', async () => {
 
 el.align.addEventListener('click', () => {
   const words = state.segments.flatMap(s => state.asr[s.id]?.words ?? []);
-  state.aligned = alignUtterances(state.utterances, words, state.segments, state.duration);
+  state.aligned = alignUtterances(state.utterances, words, state.segments, state.duration)
+    .map(u => ({ ...u, diarizedSpeaker: dominantSpeaker(u, state.segments) }));
   state.selected = null;
   const counts = { matched: 0, partial: 0, interpolated: 0 };
   for (const u of state.aligned) if (u.status in counts) counts[u.status]++;
@@ -333,21 +341,37 @@ el.align.addEventListener('click', () => {
   draw();
 });
 
+/** Diarized speaker overlapping the utterance the most (null if none). */
+function dominantSpeaker(u, segments) {
+  const overlap = new Map();
+  for (const s of segments) {
+    const o = Math.min(u.end, s.end) - Math.max(u.start, s.start);
+    if (o > 0) overlap.set(s.speakerId, (overlap.get(s.speakerId) ?? 0) + o);
+  }
+  let best = null, max = 0;
+  for (const [id, o] of overlap) if (o > max) { max = o; best = id; }
+  return best;
+}
+
 // ── Export ─────────────────────────────────────────────────────────────────
 
 const baseName = () => (state.file?.name ?? 'transcript').replace(/\.[^.]+$/, '');
 
-el.exportCsv.addEventListener('click', () => download(`${baseName()}_aligned.csv`, toCsv(state.aligned), 'text/csv'));
+el.exportCsv.addEventListener('click', () => download(`${baseName()}_aligned.csv`, toCsv(state.aligned, state.speakerCount > 1), 'text/csv'));
 el.exportEaf.addEventListener('click', () => {
   const speakers = [...new Set(state.aligned.map(u => u.speaker || 'Manual'))];
   const tiers = speakers.map(sp => ({
     id: sp === 'Manual' ? 'Manual' : `Manual - ${sp}`,
     annotations: state.aligned.filter(u => (u.speaker || 'Manual') === sp),
   }));
-  tiers.push({
-    id: 'Whisper',
-    annotations: state.segments.filter(s => state.asr[s.id]?.text).map(s => ({ start: s.start, end: s.end, text: state.asr[s.id].text })),
-  });
+  // Whisper tier(s), one per diarized speaker as in Easper
+  const speakerIds = [...new Set(state.segments.map(s => s.speakerId))].sort();
+  for (const id of speakerIds) {
+    tiers.push({
+      id: state.speakerCount > 1 ? `Whisper - S${id}` : 'Whisper',
+      annotations: state.segments.filter(s => s.speakerId === id && state.asr[s.id]?.text).map(s => ({ start: s.start, end: s.end, text: state.asr[s.id].text })),
+    });
+  }
   download(`${baseName()}_aligned.eaf`, toEaf(state.file?.name ?? 'audio.wav', tiers), 'application/xml');
 });
 

@@ -12,12 +12,20 @@ const COLORS = {
   silence: '#64748b',
   vad: '#10b981',
   vadFill: 'rgba(16, 185, 129, 0.16)',
-  speaker: '#0284c7',
-  speakerFill: 'rgba(2, 132, 199, 0.22)',
   manual: '#f59e0b',
   selected: '#38bdf8',
   playhead: '#ef4444',
 };
+
+// Easper's speaker palette
+export const SPEAKER_COLORS = {
+  1: { primary: '#0284c7', fill: 'rgba(2, 132, 199, 0.22)', bg: '#e0f2fe' },
+  2: { primary: '#7c3aed', fill: 'rgba(124, 58, 237, 0.22)', bg: '#ede9fe' },
+  3: { primary: '#059669', fill: 'rgba(5, 150, 105, 0.22)', bg: '#d1fae5' },
+  4: { primary: '#d97706', fill: 'rgba(217, 119, 6, 0.22)', bg: '#fef3c7' },
+  5: { primary: '#e11d48', fill: 'rgba(225, 29, 72, 0.22)', bg: '#ffe4e6' },
+};
+export const speakerColor = id => SPEAKER_COLORS[id] ?? SPEAKER_COLORS[1];
 
 const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
 
@@ -83,10 +91,11 @@ export function drawWaveform(canvas, v) {
   for (const s of segs) {
     if (s.end < t0 || s.start > t1) continue;
     const top = y(s.start), h = Math.max(2, (s.end - s.start) * pps);
-    const asr = v.asrSegments?.[s.id];
-    ctx.fillStyle = asr ? COLORS.speakerFill : COLORS.vadFill;
+    const c = speakerColor(s.speakerId);
+    const coloured = v.asrSegments?.[s.id] || v.speakerCount > 1;
+    ctx.fillStyle = coloured ? c.fill : COLORS.vadFill;
     ctx.fillRect(laneLeft, top, laneWidth, h);
-    ctx.fillStyle = asr ? COLORS.speaker : COLORS.vad;
+    ctx.fillStyle = coloured ? c.primary : COLORS.vad;
     ctx.fillRect(laneLeft, top, 3.5, h);
   }
   for (const u of v.aligned || []) {
@@ -117,7 +126,8 @@ export function drawWaveform(canvas, v) {
     const t = (ta + tb) / 2;
     while (segIdx < segs.length && segs[segIdx].end < t) segIdx++;
     const inSeg = segIdx < segs.length && t >= segs[segIdx].start;
-    ctx.strokeStyle = inSeg ? (v.asrSegments?.[segs[segIdx].id] ? COLORS.speaker : COLORS.vad) : COLORS.silence;
+    const seg = inSeg ? segs[segIdx] : null;
+    ctx.strokeStyle = !seg ? COLORS.silence : v.asrSegments?.[seg.id] || v.speakerCount > 1 ? speakerColor(seg.speakerId).primary : COLORS.vad;
     const w = half * m;
     ctx.beginPath(); ctx.moveTo(centre - w, row + 0.5); ctx.lineTo(centre + w, row + 0.5); ctx.stroke();
   }
