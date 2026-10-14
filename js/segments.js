@@ -21,7 +21,8 @@ const SR = 16000;
 export async function sileroVad(ort, session, audio, options = {}, onProgress = null) {
   const o = { ...VAD_DEFAULTS, ...options };
   const WINDOW = 512, CONTEXT = 64;
-  const minSpeech = Math.round((SR * o.minSegment * 1000) / 1000);
+  // As in Easper: minSegment sets the minimum speech length unless it's null (diarization)
+  const minSpeech = Math.round(SR * (o.minSegment != null ? o.minSegment : (o.minSpeechDurationMs ?? 250) / 1000));
   const minSilence = Math.round((SR * o.minSilenceDurationMs) / 1000);
   const pad = Math.round((SR * o.speechPadMs) / 1000);
   const maxSpeech = Math.round(SR * o.maxSegmentDuration);

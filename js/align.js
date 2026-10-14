@@ -16,6 +16,7 @@ export const DEFAULTS = Object.freeze({
   minAnchorSimilarity: 0.6, // pair similarity needed for a word to take Whisper's time
   gapPenalty: -0.5,
   snapDistance: 0.3,        // seconds; snap utterance edges to VAD edges this close
+  minSpeechPerWord: 0.12,   // seconds of speech needed per unmatched word before borrowing a neighbour's time
   maxCells: 30_000_000,     // above this, the DP is banded around the diagonal
 });
 
@@ -162,6 +163,16 @@ export function speechIntervals(segments) {
   return out;
 }
 
+/** Seconds of speech inside [t0, t1], ignoring slivers shorter than minPart. */
+function substantialSpeech(intervals, t0, t1, minPart = 0.2) {
+  let total = 0;
+  for (const [s, e] of intervals) {
+    const len = Math.min(e, t1) - Math.max(s, t0);
+    if (len >= minPart) total += len;
+  }
+  return total;
+}
+
 /**
  * Returns f(fraction, isStart) -> time, mapping a fraction of the speech inside
  * [t0, t1] to a time. Falls back to linear when [t0, t1] contains no speech.
@@ -238,9 +249,19 @@ export function alignUtterances(utterances, asrWords, vadSegments, duration, opt
     if (times[i]) { i++; continue; }
     let k = i;
     while (k < manual.length && !times[k]) k++;
-    // Unanchored run manual[i..k-1], between the previous anchor and the next one
-    const t0 = i > 0 ? times[i - 1][1] : speechStart;
-    const t1 = k < manual.length ? times[k][0] : speechEnd;
+    // Unanchored run manual[i..k-1], between the previous anchor and the next one.
+    // If there's barely any speech between them, Whisper probably misheard these
+    // words together with a neighbouring anchor, so re-time that anchor as well.
+    const bound = () => [i > 0 ? times[i - 1][1] : speechStart, k < manual.length ? times[k][0] : speechEnd];
+    while (substantialSpeech(speech, ...bound()) < o.minSpeechPerWord * (k - i)) {
+      if (k < manual.length) {
+        times[k] = null; sims[k] = 0;
+        while (k < manual.length && !times[k]) k++;
+      } else if (i > 0) {
+        i--; times[i] = null; sims[i] = 0;
+      } else break;
+    }
+    const [t0, t1] = bound();
     const map = speechMapper(speech, Math.min(t0, t1), Math.max(t0, t1));
     const weights = manual.slice(i, k).map(m => m.w.length + 1);
     const total = weights.reduce((x, y) => x + y, 0);

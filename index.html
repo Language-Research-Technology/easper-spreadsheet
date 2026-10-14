@@ -46,7 +46,16 @@
       <details class="menu" id="seg-menu">
         <summary class="btn">✂ Auto Segmentation</summary>
         <div class="menu-panel">
-          <p class="hint">Silero VAD with Easper's segment clean-up.</p>
+          <p class="hint">Silero VAD with Easper's segment clean-up. With 2 or more speakers,
+            segments are split into speaker turns using CAM++ speaker embeddings (30 MB download).</p>
+          <label>Number of speakers
+            <select id="vad-speakers">
+              <option value="1" selected>1 (no diarization)</option>
+              <option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+            </select>
+          </label>
+          <label>Diarization window (s) <input type="number" id="diar-window" min="0.5" max="5" step="0.5" value="1"></label>
+          <label>Diarization step (s) <input type="number" id="diar-period" min="0.25" max="5" step="0.25" value="0.5"></label>
           <label>Speech threshold <input type="number" id="vad-threshold" min="0.1" max="0.9" step="0.05" value="0.5"></label>
           <label>Merge gaps shorter than (s) <input type="number" id="vad-min-silence" min="0" step="0.1" value="0.5"></label>
           <label>Discard segments shorter than (s) <input type="number" id="vad-min-segment" min="0" step="0.1" value="0.5"></label>
