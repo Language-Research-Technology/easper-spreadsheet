@@ -2,9 +2,12 @@
 // Expected: one utterance per row, in spoken order. A header row is optional;
 // when present, a text/transcription column and an optional speaker column are
 // picked up by name. Without a header, the first column is the text.
+// In a workbook, the sheet that looks most like a transcript is used.
 
-const TEXT_HEADERS = ['text', 'transcription', 'transcript', 'utterance', 'sentence', 'annotation', 'value', 'manual', 'manual transcription'];
-const SPEAKER_HEADERS = ['speaker', 'tier', 'participant', 'speaker id', 'spk'];
+// In order of preference. "IU" is an intonation unit (Du Bois-style transcripts).
+const TEXT_HEADERS = ['text', 'transcription', 'utterance', 'iu', 'intonation unit', 'sentence', 'annotation', 'value',
+  'manual', 'manual transcription', 'transcript'];
+const SPEAKER_HEADERS = ['speaker', 'tier', 'participant', 'speaker id', 'spk', 'name'];
 
 export const ACCEPT = '.xlsx,.xls,.ods,.csv,.tsv,.txt';
 
@@ -42,8 +45,24 @@ export function rowsToUtterances(rows) {
   if (!numbered.length) throw new Error('The spreadsheet is empty.');
 
   const header = numbered[0].cells.map(norm);
-  let textCol = header.findIndex(h => TEXT_HEADERS.includes(h));
-  let speakerCol = header.findIndex(h => SPEAKER_HEADERS.includes(h));
+  // A column holding the same value in (nearly) every row, like the recording
+  // name, is a label rather than the transcript
+  const isConstant = col => {
+    const values = numbered.slice(1).map(r => r.cells[col]).filter(Boolean);
+    if (values.length <= 5) return false;
+    const counts = new Map();
+    for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+    return Math.max(...counts.values()) >= values.length * 0.98;
+  };
+  const findHeader = names => {
+    for (const name of names) {
+      const col = header.indexOf(name);
+      if (col >= 0 && !isConstant(col)) return col;
+    }
+    return -1;
+  };
+  let textCol = findHeader(TEXT_HEADERS);
+  let speakerCol = findHeader(SPEAKER_HEADERS);
   let data = numbered;
   if (textCol >= 0 || speakerCol >= 0) {
     data = numbered.slice(1);
@@ -82,15 +101,36 @@ export function parseTextFile(name, content) {
   return rowsToUtterances(text.split(/\r?\n/).map(line => [line]));
 }
 
-/** Browser entry point: read a File into utterances. */
+/**
+ * Pick the sheet that looks most like a transcript: one with a recognised
+ * text column, then the most utterances. Returns {name, utterances}.
+ */
+export function chooseSheet(sheets) {
+  let best = null;
+  for (const { name, rows } of sheets) {
+    let utterances;
+    try { utterances = rowsToUtterances(rows); } catch { continue; }
+    const header = (rows.find(r => r.some(c => String(c ?? '').trim())) || []).map(norm);
+    const named = TEXT_HEADERS.some(h => header.includes(h));
+    const score = (named ? 1e9 : 0) + utterances.length;
+    if (!best || score > best.score) best = { name, utterances, score };
+  }
+  if (!best) throw new Error('No transcriptions found in any sheet.');
+  return { name: best.name, utterances: best.utterances };
+}
+
+/** Browser entry point: read a File into utterances (and the sheet used, for workbooks). */
 export async function readSpreadsheetFile(file) {
   const ext = file.name.toLowerCase().split('.').pop();
   if (['xlsx', 'xls', 'ods'].includes(ext)) {
     const XLSX = await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm');
     const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
-    return rowsToUtterances(rows);
+    const sheets = wb.SheetNames.map(name => ({
+      name, rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: '' }),
+    }));
+    const { name, utterances } = chooseSheet(sheets);
+    utterances.sheet = sheets.length > 1 ? name : null;
+    return utterances;
   }
   return parseTextFile(file.name, await file.text());
 }

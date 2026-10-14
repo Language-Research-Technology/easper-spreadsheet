@@ -389,7 +389,8 @@ el.sheetInput.addEventListener('change', async () => {
     state.utterances = await readSpreadsheetFile(file);
     state.aligned = [];
     const speakers = new Set(state.utterances.map(u => u.speaker).filter(Boolean));
-    el.sheetInfo.textContent = `${file.name}: ${state.utterances.length} utterances${speakers.size ? `, ${speakers.size} speaker(s)` : ''}.`;
+    const sheet = state.utterances.sheet ? ` (sheet "${state.utterances.sheet}")` : '';
+    el.sheetInfo.textContent = `${file.name}${sheet}: ${state.utterances.length} utterances${speakers.size ? `, ${speakers.size} speaker(s)` : ''}.`;
     setStatus(`Loaded ${state.utterances.length} manual utterances from ${file.name}.`);
     refreshControls();
     renderLanes();

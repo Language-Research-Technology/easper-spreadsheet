@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDelimited, parseTextFile, rowsToUtterances } from '../js/spreadsheet.js';
+import { chooseSheet, parseDelimited, parseTextFile, rowsToUtterances } from '../js/spreadsheet.js';
 import { segmentsCleanup } from '../js/segments.js';
 import { toCsv, toEaf } from '../js/export.js';
 
@@ -48,4 +48,14 @@ test('exports include timecodes', () => {
   const eaf = toEaf('rec.wav', [{ id: 'Manual', annotations: aligned }]);
   assert.match(eaf, /TIME_VALUE="1500"/);
   assert.match(eaf, /<ANNOTATION_VALUE>hi, &quot;you&quot;<\/ANNOTATION_VALUE>/);
+});
+
+test('workbook: picks the transcript sheet, the IU column and the Name column', () => {
+  const pivot = [[], [], ['Row Labels', 'Count of Transcript'], ['1', '83'], ['2', '70']];
+  const rows = [['Transcript', 'Time', 'IU #', 'Name', 'IU', 'Comments']];
+  for (let i = 1; i <= 10; i++) rows.push(['03 Familia', '', String(i), i % 2 ? 'Ángela' : 'Santi', `frase número ${i}`, '']);
+  const { name, utterances } = chooseSheet([{ name: 'Sheet2', rows: pivot }, { name: 'Sheet1', rows }]);
+  assert.equal(name, 'Sheet1');
+  assert.deepEqual(utterances[0], { row: 2, text: 'frase número 1', speaker: 'Ángela' });
+  assert.equal(utterances.length, 10);
 });
