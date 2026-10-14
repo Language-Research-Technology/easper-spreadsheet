@@ -71,6 +71,16 @@ body { margin: 0; background: var(--bg); height: 100vh; display: flex; flex-dire
   background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 30px rgba(15, 23, 42, .15);
 }
 .menu.right .menu-panel { left: auto; right: 0; }
+#manual-menu .menu-panel { width: 400px; }
+.mapping { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.mapping select { width: 230px; max-width: 230px; }
+.mapping label.check { justify-content: flex-start; }
+.map-preview { font-size: 12px; border: 1px solid var(--border); border-radius: 6px; max-height: 150px; overflow: auto; }
+.map-preview div { display: flex; gap: 6px; padding: 3px 6px; border-top: 1px solid #f1f5f9; }
+.map-preview div:first-child { border-top: 0; }
+.map-preview .row-no { color: var(--muted); font: 11px ui-monospace, Menlo, monospace; min-width: 34px; }
+.map-preview .who { color: var(--primary); font-weight: 600; white-space: nowrap; }
+.map-preview .empty { color: #b91c1c; }
 .menu-panel label:not(.btn) { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
 .menu-panel input[type=number] { width: 70px; }
 .menu-panel select { max-width: 170px; }

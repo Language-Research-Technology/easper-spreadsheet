@@ -17,6 +17,8 @@ merging it into Easper later.
 4. **Manual Transcript**: upload `.xlsx` / `.csv` / `.tsv` / `.txt`, with one utterance per row in spoken order.
    A header with a `text`, `transcription` or `IU` column and an optional `speaker` or `Name` column is recognised;
    otherwise the first column is used. In a workbook, the sheet that looks like a transcript is used, e.g. skipping a pivot table.
+   These are only defaults: after uploading, the menu lets you choose the **sheet**, whether the **first row is a header**,
+   and the **text** and **speaker** columns, with a preview of the result.
    Transcription conventions that aren't speech are ignored when matching: `((comments))`, `(1.5)` pauses,
    `<tags>`, and `X`/`XX` unintelligible syllables. The text you see and export is unchanged.
 5. **Align**: the manual words are aligned to Whisper's timed words (fuzzy, so misspellings and

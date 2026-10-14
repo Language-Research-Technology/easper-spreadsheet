@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseSheet, parseDelimited, parseTextFile, rowsToUtterances } from '../js/spreadsheet.js';
+import { chooseSheet, columnLetter, describeColumns, detectMapping, parseDelimited, parseTextFile, rowsToUtterances, toUtterances } from '../js/spreadsheet.js';
 import { segmentsCleanup } from '../js/segments.js';
 import { toCsv, toEaf } from '../js/export.js';
 
@@ -58,4 +58,21 @@ test('workbook: picks the transcript sheet, the IU column and the Name column', 
   assert.equal(name, 'Sheet1');
   assert.deepEqual(utterances[0], { row: 2, text: 'frase número 1', speaker: 'Ángela' });
   assert.equal(utterances.length, 10);
+});
+
+test('columnLetter follows spreadsheet naming', () => {
+  assert.deepEqual([0, 4, 25, 26, 27, 701, 702].map(columnLetter), ['A', 'E', 'Z', 'AA', 'AB', 'ZZ', 'AAA']);
+});
+
+test('detectMapping and describeColumns support choosing columns by hand', () => {
+  const rows = [[], ['Recording', 'Who', 'Utterance text', 'Notes'], ['r1', 'Ana', 'hola', ''], ['r1', 'Ben', 'qué tal', 'x'], ['r1', 'Ana', '', '']];
+  // Unrecognised headers: no header assumed, first column with text used
+  assert.deepEqual(detectMapping(rows), { headerRow: -1, textCol: 0, speakerCol: -1 });
+  const cols = describeColumns(rows, 1);
+  assert.deepEqual(cols.map(c => [c.letter, c.header, c.sample]), [['A', 'Recording', 'r1'], ['B', 'Who', 'Ana'], ['C', 'Utterance text', 'hola'], ['D', 'Notes', 'x']]);
+  // The user's choice: header on row 2, text in C, speaker in B
+  assert.deepEqual(toUtterances(rows, { headerRow: 1, textCol: 2, speakerCol: 1 }), [
+    { row: 3, text: 'hola', speaker: 'Ana' }, { row: 4, text: 'qué tal', speaker: 'Ben' },
+  ]);
+  assert.deepEqual(toUtterances(rows, { headerRow: -1, textCol: 2, speakerCol: -1 }).map(u => u.text), ['Utterance text', 'hola', 'qué tal']);
 });

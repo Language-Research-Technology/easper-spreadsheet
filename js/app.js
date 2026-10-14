@@ -1,6 +1,6 @@
 import { decodeTo16kMono, computePeaks, SAMPLE_RATE } from './audio.js';
 import { drawWaveform, formatClock, speakerColor } from './waveform.js';
-import { readSpreadsheetFile, ACCEPT } from './spreadsheet.js';
+import { readSheets, chooseSheet, detectMapping, describeColumns, toUtterances, ACCEPT } from './spreadsheet.js';
 import { alignUtterances } from './align.js';
 import { toCsv, toEaf, download, formatTime } from './export.js';
 import { formatClock as formatRangeClock, overlapsRange, mergeSegments } from './range.js';
@@ -381,23 +381,88 @@ function onWorkerMessage({ data }) {
 // ── Manual transcript & alignment ──────────────────────────────────────────
 
 el.sheetInput.accept = ACCEPT;
+// Spreadsheet → utterances: the sheet and columns are guessed, and can be changed in the menu
+const map = {
+  panel: $('sheet-mapping'), sheet: $('map-sheet'), sheetRow: $('map-sheet-row'), header: $('map-header'),
+  text: $('map-text'), speaker: $('map-speaker'), preview: $('map-preview'),
+};
+let source = null; // { fileName, sheets: [{name, rows}], sheet, mapping }
+
+function fillColumnSelect(select, columns, value, allowNone) {
+  select.replaceChildren();
+  if (allowNone) select.append(new Option('(none)', '-1'));
+  for (const c of columns) {
+    const label = `${c.letter}${c.header ? ` · ${c.header}` : ''}${c.sample ? ` — ${c.sample.slice(0, 40)}` : ''}`;
+    select.append(new Option(label, String(c.index)));
+  }
+  select.value = String(value);
+}
+
+function showMapping() {
+  const { sheets, sheet, mapping } = source;
+  const rows = sheets[sheet].rows;
+  map.sheetRow.hidden = sheets.length < 2;
+  map.sheet.replaceChildren(...sheets.map((s, i) => new Option(`${s.name} (${s.rows.length} rows)`, String(i))));
+  map.sheet.value = String(sheet);
+  map.header.checked = mapping.headerRow >= 0;
+  const columns = describeColumns(rows, mapping.headerRow);
+  fillColumnSelect(map.text, columns, mapping.textCol, false);
+  fillColumnSelect(map.speaker, columns, mapping.speakerCol, true);
+  map.panel.hidden = false;
+  applyMapping();
+}
+
+function applyMapping() {
+  const { fileName, sheets, sheet, mapping } = source;
+  state.utterances = toUtterances(sheets[sheet].rows, mapping);
+  state.aligned = [];
+  const n = state.utterances.length;
+  const speakers = new Set(state.utterances.map(u => u.speaker).filter(Boolean));
+  const where = sheets.length > 1 ? ` (sheet "${sheets[sheet].name}")` : '';
+  el.sheetInfo.textContent = `${fileName}${where}: ${n} utterances${speakers.size ? `, ${speakers.size} speaker(s)` : ''}.`;
+  map.preview.replaceChildren(...(n ? state.utterances.slice(0, 6) : [null]).map(u => {
+    const line = document.createElement('div');
+    if (!u) { line.className = 'empty'; line.textContent = 'No text in this column.'; return line; }
+    line.innerHTML = '<span class="row-no"></span><span class="who"></span><span class="txt"></span>';
+    line.querySelector('.row-no').textContent = `#${u.row}`;
+    line.querySelector('.who').textContent = u.speaker ? `${u.speaker}:` : '';
+    line.querySelector('.txt').textContent = u.text;
+    return line;
+  }));
+  setStatus(n ? `Loaded ${n} manual utterances from ${fileName}${where}. Check the columns in the Manual Transcript menu, then click Align.`
+    : `No text found in the chosen column of ${fileName}.`, n ? '' : 'warning');
+  refreshControls();
+  renderLanes();
+  draw();
+}
+
 el.sheetInput.addEventListener('change', async () => {
   const file = el.sheetInput.files[0];
   if (!file) return;
   el.sheetInput.value = '';
   try {
-    state.utterances = await readSpreadsheetFile(file);
-    state.aligned = [];
-    const speakers = new Set(state.utterances.map(u => u.speaker).filter(Boolean));
-    const sheet = state.utterances.sheet ? ` (sheet "${state.utterances.sheet}")` : '';
-    el.sheetInfo.textContent = `${file.name}${sheet}: ${state.utterances.length} utterances${speakers.size ? `, ${speakers.size} speaker(s)` : ''}.`;
-    setStatus(`Loaded ${state.utterances.length} manual utterances from ${file.name}.`);
-    refreshControls();
-    renderLanes();
+    const sheets = await readSheets(file);
+    let sheet = 0;
+    try { sheet = chooseSheet(sheets).index; } catch { /* no obvious transcript sheet: start with the first */ }
+    source = { fileName: file.name, sheets, sheet, mapping: detectMapping(sheets[sheet].rows) };
+    showMapping();
   } catch (err) {
     setStatus(`Could not read ${file.name}: ${err.message}`, 'error');
   }
 });
+
+map.sheet.addEventListener('change', () => {
+  source.sheet = Number(map.sheet.value);
+  source.mapping = detectMapping(source.sheets[source.sheet].rows);
+  showMapping();
+});
+map.header.addEventListener('change', () => {
+  const rows = source.sheets[source.sheet].rows;
+  source.mapping.headerRow = map.header.checked ? Math.max(0, rows.findIndex(r => r.some(c => String(c ?? '').trim()))) : -1;
+  showMapping();
+});
+map.text.addEventListener('change', () => { source.mapping.textCol = Number(map.text.value); applyMapping(); });
+map.speaker.addEventListener('change', () => { source.mapping.speakerCol = Number(map.speaker.value); applyMapping(); });
 
 el.align.addEventListener('click', () => {
   const words = state.segments.flatMap(s => state.asr[s.id]?.words ?? []);
