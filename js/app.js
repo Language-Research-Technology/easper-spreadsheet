@@ -21,7 +21,7 @@ const el = {
   zoom: $('zoom'), zoomValue: $('zoom-value'), speed: $('speed'), speedValue: $('speed-value'),
   segRun: $('seg-run'), asrRun: $('asr-run'), asrModel: $('asr-model'), asrLanguage: $('asr-language'),
   asrCount: $('asr-count'), sheetInput: $('sheet-input'), sheetInfo: $('sheet-info'), manualCount: $('manual-count'),
-  align: $('align-btn'), exportCsv: $('export-csv'), exportEaf: $('export-eaf'),
+  align: $('align-btn'), stop: $('stop-btn'), exportCsv: $('export-csv'), exportEaf: $('export-eaf'),
   status: $('status'), progress: $('progress'), progressBar: $('progress-bar'), steps: $('steps'),
   timeline: $('timeline'), content: $('timeline-content'), waveSticky: $('wave-sticky'), canvas: $('wave'),
   asrLane: $('asr-lane'), manualLane: $('manual-lane'), player: $('player'),
@@ -36,9 +36,51 @@ const state = {
   aligned: [],       // alignment result
   range: null,       // {start, end} to process only part of the recording; null = whole
   pps: 24, selected: null, hoverTime: null, stopAt: null, busy: false,
+  job: null,         // running worker job: 'vad' | 'asr' | null
 };
 
-const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+let worker = null;
+
+/** (Re)start the background worker; stopping a job or a crash restarts it. */
+function startWorker() {
+  worker?.terminate();
+  worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+  worker.onmessage = onWorkerMessage;
+  worker.onerror = e => {
+    e.preventDefault();
+    console.error('Worker crashed:', e);
+    const job = state.job;
+    startWorker();
+    endJob();
+    setStatus(`The background worker stopped unexpectedly${job ? ` during ${JOB_NAMES[job]}` : ''}${e.message ? ` (${e.message})` : ''}. Results so far are kept; you can run it again.`, 'error');
+  };
+  if (state.samples) worker.postMessage({ type: 'set_audio', audio: state.samples.slice() });
+}
+
+const JOB_NAMES = { vad: 'segmentation', asr: 'speech recognition' };
+
+function startJob(type, message) {
+  state.job = type;
+  setBusy(true);
+  setProgress(0);
+  worker.postMessage({ type, ...message });
+}
+
+function endJob() {
+  state.job = null;
+  setProgress(null);
+  setBusy(false);
+}
+
+function stopJob() {
+  const job = state.job;
+  if (!job) return;
+  startWorker();
+  endJob();
+  renderLanes();
+  draw();
+  setStatus(`Stopped ${JOB_NAMES[job]}. Results so far are kept.`, 'warning');
+}
 
 // ── Status & state ─────────────────────────────────────────────────────────
 
@@ -58,6 +100,7 @@ function refreshControls() {
   const hasAudio = !!state.samples;
   const hasAsr = Object.keys(state.asr).length > 0;
   el.play.disabled = !hasAudio;
+  el.stop.hidden = !state.job;
   el.segRun.disabled = !hasAudio || state.busy;
   el.asrRun.disabled = !state.segments.length || state.busy;
   el.align.disabled = !hasAudio || !state.utterances.length || state.busy;
@@ -264,10 +307,7 @@ function showRange(updateSlider = true) {
 
 el.segRun.addEventListener('click', () => {
   $('seg-menu').open = false;
-  setBusy(true);
-  setProgress(0);
-  worker.postMessage({
-    type: 'vad',
+  startJob('vad', {
     range: state.range,
     speakers: Number($('vad-speakers').value),
     diarization: { windowSec: Number($('diar-window').value), periodSec: Number($('diar-period').value) },
@@ -288,18 +328,15 @@ el.asrRun.addEventListener('click', () => {
     return;
   }
   for (const s of targets) delete state.asr[s.id];
-  setBusy(true);
-  setProgress(0);
   layout();
-  worker.postMessage({
-    type: 'asr',
+  startJob('asr', {
     segments: targets.map(s => ({ id: s.id, start: s.start, end: s.end })),
     modelId: el.asrModel.value,
     language: el.asrLanguage.value,
   });
 });
 
-worker.onmessage = ({ data }) => {
+function onWorkerMessage({ data }) {
   switch (data.type) {
     case 'status': setStatus(data.message); break;
     case 'warning': setStatus(data.message, 'warning'); break;
@@ -311,8 +348,7 @@ worker.onmessage = ({ data }) => {
       for (const id of Object.keys(state.asr)) if (!ids.has(Number(id))) delete state.asr[id];
       state.speakerCount = Math.max(data.speakers, new Set(state.segments.map(s => s.speakerId)).size);
       state.aligned = [];
-      setProgress(null);
-      setBusy(false);
+      endJob();
       layout();
       const where = data.range ? ` in ${formatRangeClock(data.range.start)}–${formatRangeClock(data.range.end)}` : '';
       setStatus(`Found ${data.segments.length} speech segments${where}${data.speakers > 1 ? ` from ${data.speakers} speakers` : ''}. Run Speech Recognition next.`);
@@ -327,17 +363,15 @@ worker.onmessage = ({ data }) => {
       break;
     }
     case 'asr_done':
-      setProgress(null);
-      setBusy(false);
+      endJob();
       setStatus('Whisper transcription complete. Upload your manual transcript, then click Align.');
       break;
     case 'error':
-      setProgress(null);
-      setBusy(false);
+      endJob();
       setStatus(data.message, 'error');
       break;
   }
-};
+}
 
 // ── Manual transcript & alignment ──────────────────────────────────────────
 
@@ -411,6 +445,8 @@ el.exportEaf.addEventListener('click', () => {
 
 for (const [code, name] of LANGUAGES) el.asrLanguage.append(new Option(name, code));
 el.asrLanguage.value = 'en';
+el.stop.addEventListener('click', stopJob);
+startWorker();
 refreshControls();
 layout();
 showRange();
